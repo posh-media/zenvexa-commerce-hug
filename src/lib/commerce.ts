@@ -11,9 +11,9 @@ import oil from '@/assets/oil.jpg.asset.json';
 import kaftan from '@/assets/kaftan.jpg.asset.json';
 import perfume from '@/assets/perfume.jpg.asset.json';
 export const money = (n:number) => new Intl.NumberFormat('en-NG',{style:'currency',currency:'NGN',maximumFractionDigits:0}).format(n);
-export const categories = ['All Merchandise','Phones & Gadgets','Home & Power','Naija Fashion & Style','Supermarket & Pantry','Beauty & Personal Care'];
+export const categories = ['All Merchandise','Phones & Gadgets','Home & Power','Naija Fashion & Style','Supermarket & Pantry','Beauty & Personal Care'] as const;
 export const categoryEmoji = ['🛍️','📱','⚡','👗','🌾','✨'];
-export const locations:Record<string,{fee:number;zones:string[];eta:string}> = {
+export const locations = {
  Lagos:{fee:1500,zones:['Ikeja','Lekki Phase 1','Victoria Island','Surulere','Yaba','Ajah'],eta:'1 – 2 Business Days'},
  'Abuja (FCT)':{fee:2500,zones:['Wuse II','Maitama','Garki','Gwarinpa'],eta:'1 – 2 Business Days'},
  Rivers:{fee:2800,zones:['Port Harcourt GRA','Trans-Amadi','Rumuokoro','Obio-Akpor'],eta:'1 – 2 Business Days'},
@@ -21,9 +21,13 @@ export const locations:Record<string,{fee:number;zones:string[];eta:string}> = {
  Kano:{fee:3200,zones:['Nassarawa','Fagge','Tarauni','Sabon Gari'],eta:'1 – 2 Business Days'},
  Enugu:{fee:2700,zones:['Independence Layout','New Haven','Enugu North','Trans-Ekulu'],eta:'1 – 2 Business Days'},
 };
+export type DeliveryState = keyof typeof locations;
+export function isDeliveryState(value: string): value is DeliveryState {
+ return Object.prototype.hasOwnProperty.call(locations, value);
+}
 export type Product={id:string;title:string;category:string;price:number;oldPrice:number;badge:string;vendor:string;specs:string[];description:string;image:string;sku:string;stock:number;rating:number;reviews:number};
-const make=(id:string,title:string,category:number,price:number,oldPrice:number,badge:string,vendor:string,specs:string[],description:string,image:string,stock:number,rating:number,reviews:number):Product=>({id,title,category:categories[category],price,oldPrice,badge,vendor,specs,description,image,sku:`ZVX-${id.toUpperCase()}-001`,stock,rating,reviews});
-export const products:Product[]=[
+const make=(id:string,title:string,category:number,price:number,oldPrice:number,badge:string,vendor:string,specs:string[],description:string,image:string,stock:number,rating:number,reviews:number):Product=>({id,title,category:categories[category] ?? categories[0],price,oldPrice,badge,vendor,specs,description,image,sku:`ZVX-${id.toUpperCase()}-001`,stock,rating,reviews});
+export const products=[
  make('eco','EcoFlow Delta 2 Portable Power Station (1024Wh)',2,985000,1120000,'Awoof Deal','Zenvexa Official Power Hub',['1800W AC Output','LiFePO4 3000+ Cycles','Solar Input Ready','5-Year Local Warranty'],'NEPA took light? No wahala. Beat NEPA/PHCN outages effortlessly and keep your home, work and everyday essentials powered.',power,14,4.9,128),
  make('sam','Samsung Galaxy A55 5G (256GB / 8GB RAM)',1,545000,590000,'Best Seller','SlotTech Verified Partner',['Dual SIM 5G (MTN/Airtel Ready)','50MP OIS Camera','256GB ROM / 8GB RAM','5000mAh All-Day Battery'],'Your next everyday upgrade. Brilliant photos, smooth performance and all-day battery, wherever Naija takes you.',phone.url,32,4.8,246),
  make('rice','Royal Stallion Classic Parboiled Rice (50kg Bag)',4,78500,85000,'Household Essential','Zenvexa Agro Direct',['50kg Full Measure','100% Stone-Free','Ideal for Party Jollof'],'From Sunday rice to that legendary party jollof, bring the whole family together with premium, stone-free grains.',rice.url,86,4.7,312),
@@ -36,8 +40,8 @@ export const products:Product[]=[
  make('oil','Devon King’s Pure Vegetable Cooking Oil (5 Litres Keg)',4,19500,22000,'Pantry Saver','Zenvexa Agro Direct',['NAFDAC Certified','5L Factory Sealed','Pure Vegetable Oil'],'The kitchen staple your family trusts. Fresh, factory-sealed vegetable oil for frying, stews and everyday meals.',oil.url,120,4.8,221),
  make('sen','Executive Senator Kaftan Set with Monogram Embroidery',3,65000,78000,'Bespoke Finish','Abuja Royal Threads',['Premium Senator Fabric','Monogram Embroidery','Sizes M – XXXL'],'Make an entrance without saying a word. Refined Nigerian tailoring with a beautiful bespoke monogram finish.',kaftan.url,16,4.9,52),
  make('lat','Lattafa Khamrah Eau De Parfum (100ml Original)',5,46000,55000,'Viral Fragrance','Nectar Beauty Lounge',['100ml Original Eau De Parfum','Warm Amber & Vanilla Notes','Long-Lasting Sillage'],'Warm, rich and unforgettable. The much-loved original fragrance with notes of cinnamon, amber and vanilla.',perfume.url,29,4.8,142),
-];
+] as const satisfies readonly Product[];
 export function promoDiscount(code:string,subtotal:number){const c=code.trim().toUpperCase();return c==='HUG10'? Math.round(subtotal*0.1):c==='NAIJA5K'&&subtotal>50000?5000:0;}
 export type CartItem={product:Product;quantity:number};
 export function cartSubtotal(items:CartItem[]){return items.reduce((sum,i)=>sum+i.product.price*i.quantity,0);}
-export function orderTotal(items:CartItem[],state:string,code=''){const subtotal=cartSubtotal(items);return Math.max(0,subtotal-promoDiscount(code,subtotal))+(items.length?locations[state].fee:0);}
+export function orderTotal(items:CartItem[],state:DeliveryState,code=''){const subtotal=cartSubtotal(items);return Math.max(0,subtotal-promoDiscount(code,subtotal))+(items.length?locations[state].fee:0);}
