@@ -1,24 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
-export const Route = createFileRoute("/")({
-  component: Index,
+import {createFileRoute} from '@tanstack/react-router';
+import {StoreProvider,useStore} from '@/components/zenvexa/store-context';
+import {Header,Shop,Footer,Overlays} from '@/components/zenvexa/storefront';
+import {Checkout,Orders,Vendor} from '@/components/zenvexa/views';
+import {Toaster} from '@/components/ui/sonner';
+export const Route=createFileRoute('/')({
+ head:()=>({meta:[{title:'Zenvexa — Everything Naija Needs, Delivered with a Warm Hug'},{name:'description',content:'Shop phones, home power, Nigerian fashion, pantry essentials and beauty from verified Nigerian merchants. Discover Awoof deals at Zenvexa Commerce Hug.'},{property:'og:title',content:'Zenvexa Commerce Hug — Your Everyday, Upgraded'},{property:'og:description',content:'Trusted Nigerian merchants, great Naira prices and everything Naija needs, delivered with a warm hug.'},{property:'og:type',content:'website'},{name:'twitter:card',content:'summary_large_image'}]}),
+ component:Index,
 });
-
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
-function Index() {
-  return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
-  );
-}
+function Experience(){const s=useStore();return <><Header/>{s.view==='shop'?<Shop/>:s.view==='checkout'?<Checkout/>:s.view==='orders'?<Orders/>:<Vendor/>}<Footer/><Overlays/><Toaster position="bottom-right" richColors/></>;}
+function Index(){return <StoreProvider><Experience/></StoreProvider>;}
