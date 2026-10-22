@@ -1,6 +1,7 @@
 import {
   addDoc,
   deleteDoc,
+  deleteField,
   getDoc,
   getDocs,
   serverTimestamp,
@@ -31,10 +32,12 @@ export async function listAdsAdmin(): Promise<Ad[]> {
 }
 
 export async function createAdAdmin(input: AdInput, actor: Actor) {
+  const isAds = input.type !== "other_expense";
   const payload: AdDocument = {
-    type: input.type === "other_expense" ? "other_expense" : "ads",
-    platform: input.platform.trim(),
-    campaignName: input.campaignName?.trim() || undefined,
+    type: isAds ? "ads" : "other_expense",
+    // Ads-only fields are cleared for Other Expense records.
+    platform: isAds ? input.platform.trim() : "",
+    campaignName: isAds ? input.campaignName?.trim() || undefined : undefined,
     amount: Number(input.amount) || 0,
     date: input.date,
     description: input.description?.trim() || undefined,
@@ -60,13 +63,18 @@ export async function updateAdAdmin(id: string, input: AdInput, actor: Actor) {
   const existing = await getAdAdmin(id);
   if (!existing) throw new Error("Ad expense not found.");
   
-  const next: Partial<AdDocument> = {
-    type: input.type === "other_expense" ? "other_expense" : "ads",
-    platform: input.platform.trim(),
-    campaignName: input.campaignName?.trim() || undefined,
+  const isAds = input.type !== "other_expense";
+  const next: Record<string, unknown> = {
+    type: isAds ? "ads" : "other_expense",
+    // Ads-only fields are cleared for Other Expense records so stale
+    // platform/campaign values never linger after a type switch.
+    platform: isAds ? input.platform.trim() : "",
+    campaignName: isAds
+      ? input.campaignName?.trim() || deleteField()
+      : deleteField(),
     amount: Number(input.amount) || 0,
     date: input.date,
-    description: input.description?.trim() || undefined,
+    description: input.description?.trim() || deleteField(),
     updatedAt: serverTimestamp() as never,
   };
   

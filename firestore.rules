@@ -120,6 +120,9 @@ service cloud.firestore {
         (!('liveApiKey' in request.resource.data) || request.resource.data.liveApiKey is string) &&
         (!('liveSecretKey' in request.resource.data) || request.resource.data.liveSecretKey is string) &&
         (!('liveContractCode' in request.resource.data) || request.resource.data.liveContractCode is string);
+      allow create, update: if provider in ['paystack', 'korapay', 'flutterwave'] && isSuperOrAdmin() &&
+        request.resource.data.keys().hasOnly(['secretKey', 'updatedAt']) &&
+        (!('secretKey' in request.resource.data) || request.resource.data.secretKey is string);
       allow delete: if false;
     }
 

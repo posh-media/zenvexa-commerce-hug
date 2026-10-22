@@ -613,9 +613,12 @@ test("public payment settings expose visibility without returning Squad keys", a
     "cod",
     "codAllowedStates",
     "flutterwave",
+    "flutterwaveKeyConfigured",
     "korapay",
+    "korapayKeyConfigured",
     "monnify",
     "paystack",
+    "paystackKeyConfigured",
     "squad",
   ]);
   assert.equal(

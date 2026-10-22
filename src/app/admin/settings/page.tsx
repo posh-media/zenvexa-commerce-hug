@@ -6,7 +6,12 @@ import { ImageUploadField } from "@/components/admin/image-upload-field";
 import { RequireAdmin } from "@/components/auth/require-admin";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Label } from "@/components/ui/field";
-import { getAppSettings, updateAppSettings } from "@/services/settings.service";
+import {
+  getAppSettings,
+  migrateLegacyPaymentSecrets,
+  saveProviderSecrets,
+  updateAppSettings,
+} from "@/services/settings.service";
 import { saveMonnifySecrets } from "@/services/monnify-settings.service";
 import { saveSquadSecrets } from "@/services/squad-settings.service";
 import { clearPaymentProviderSettingsCache } from "@/services/payments.service";
@@ -59,6 +64,28 @@ export default function AdminSettingsPage() {
     flutterwaveSecretKey: "",
   });
   const [saving, setSaving] = useState(false);
+  const [keysConfigured, setKeysConfigured] = useState({
+    paystack: false,
+    korapay: false,
+    flutterwave: false,
+  });
+
+  useEffect(() => {
+    // Copy any legacy paymentSecrets into the write-only collection and
+    // remove them from the publicly-readable settings document.
+    void migrateLegacyPaymentSecrets().catch(() => undefined);
+    void fetch("/api/payment-settings")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setKeysConfigured({
+          paystack: Boolean(data.paystackKeyConfigured),
+          korapay: Boolean(data.korapayKeyConfigured),
+          flutterwave: Boolean(data.flutterwaveKeyConfigured),
+        });
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void getAppSettings()
@@ -113,6 +140,11 @@ export default function AdminSettingsPage() {
         liveContractCode: form.monnifyLiveContractCode,
       });
       await saveSquadSecrets({ sandboxSecretKey: form.squadSandboxSecretKey, liveSecretKey: form.squadLiveSecretKey });
+      await saveProviderSecrets({
+        paystackSecretKey: form.paystackSecretKey,
+        korapaySecretKey: form.korapaySecretKey,
+        flutterwaveSecretKey: form.flutterwaveSecretKey,
+      });
       await updateAppSettings(
         {
           storeInformation: {
@@ -153,11 +185,6 @@ export default function AdminSettingsPage() {
             squadSandbox: form.squadSandbox,
             flutterwaveEnabled: form.flutterwaveEnabled,
           },
-          paymentSecrets: {
-            ...(form.paystackSecretKey ? { paystackSecretKey: form.paystackSecretKey } : {}),
-            ...(form.korapaySecretKey ? { korapaySecretKey: form.korapaySecretKey } : {}),
-            ...(form.flutterwaveSecretKey ? { flutterwaveSecretKey: form.flutterwaveSecretKey } : {}),
-          },
           notifications: {
             orderEmailEnabled: form.orderEmailEnabled,
             promoPushEnabled: form.promoPushEnabled,
@@ -170,7 +197,12 @@ export default function AdminSettingsPage() {
         },
         actor,
       );
-      setForm(f => ({ ...f, squadSandboxSecretKey: "", squadLiveSecretKey: "", monnifySandboxApiKey: "", monnifySandboxSecretKey: "", monnifySandboxContractCode: "", monnifyLiveApiKey: "", monnifyLiveSecretKey: "", monnifyLiveContractCode: "" }));
+      setForm(f => ({ ...f, squadSandboxSecretKey: "", squadLiveSecretKey: "", monnifySandboxApiKey: "", monnifySandboxSecretKey: "", monnifySandboxContractCode: "", monnifyLiveApiKey: "", monnifyLiveSecretKey: "", monnifyLiveContractCode: "", paystackSecretKey: "", korapaySecretKey: "", flutterwaveSecretKey: "" }));
+      setKeysConfigured((k) => ({
+        paystack: k.paystack || Boolean(form.paystackSecretKey.trim()),
+        korapay: k.korapay || Boolean(form.korapaySecretKey.trim()),
+        flutterwave: k.flutterwave || Boolean(form.flutterwaveSecretKey.trim()),
+      }));
       clearPaymentProviderSettingsCache();
       toastSuccess("Settings saved");
     } catch (err) {
@@ -187,7 +219,7 @@ export default function AdminSettingsPage() {
     <RequireAdmin permission="settings:write">
       <AdminPageHeader
         title="Store settings"
-        description="General, commerce and payment toggles. Secret Paystack keys stay in environment variables only."
+        description="General, commerce and payment toggles. Secret keys are stored in a write-only collection; blank fields keep saved values."
       />
       <form
         onSubmit={onSubmit}
@@ -400,14 +432,21 @@ export default function AdminSettingsPage() {
           <div className="space-y-3">
             <h3 className="text-[13px] font-medium text-ink">Secret Keys</h3>
             <p className="text-[11px] text-muted">
-              Enter secret keys to configure payment providers. Keys are stored securely and never displayed after saving.
+              Secret keys are stored in a write-only collection and never
+              returned to the browser. Enter a new key only to replace the
+              saved one — a blank field keeps the current key.
             </p>
             <div>
               <Label htmlFor="paystackSecret">Paystack Secret Key</Label>
               <Input
                 id="paystackSecret"
                 type="password"
-                placeholder="Enter Paystack secret key"
+                autoComplete="new-password"
+                placeholder={
+                  keysConfigured.paystack
+                    ? "Saved — leave blank to keep current key"
+                    : "Enter Paystack secret key"
+                }
                 value={form.paystackSecretKey}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, paystackSecretKey: e.target.value }))
@@ -419,7 +458,12 @@ export default function AdminSettingsPage() {
               <Input
                 id="korapaySecret"
                 type="password"
-                placeholder="Enter KoraPay secret key"
+                autoComplete="new-password"
+                placeholder={
+                  keysConfigured.korapay
+                    ? "Saved — leave blank to keep current key"
+                    : "Enter KoraPay secret key"
+                }
                 value={form.korapaySecretKey}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, korapaySecretKey: e.target.value }))
@@ -431,7 +475,12 @@ export default function AdminSettingsPage() {
               <Input
                 id="flutterwaveSecret"
                 type="password"
-                placeholder="Enter Flutterwave secret key"
+                autoComplete="new-password"
+                placeholder={
+                  keysConfigured.flutterwave
+                    ? "Saved — leave blank to keep current key"
+                    : "Enter Flutterwave secret key"
+                }
                 value={form.flutterwaveSecretKey}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, flutterwaveSecretKey: e.target.value }))
