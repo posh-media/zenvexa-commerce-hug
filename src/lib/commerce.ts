@@ -10,6 +10,8 @@ import laptop from '@/assets/laptop.jpg.asset.json';
 import oil from '@/assets/oil.jpg.asset.json';
 import kaftan from '@/assets/kaftan.jpg.asset.json';
 import perfume from '@/assets/perfume.jpg.asset.json';
+import {extraRows} from './catalog-data';
+const localImages:Record<string,string>={power,fan:fan.url,blender:blender.url,adire:adire.url,kaftan:kaftan.url,rice:rice.url,oil:oil.url,beauty:beauty.url};
 export const money = (n:number) => new Intl.NumberFormat('en-NG',{style:'currency',currency:'NGN',maximumFractionDigits:0}).format(n);
 export const categories = ['All Merchandise','Phones & Gadgets','Home & Power','Naija Fashion & Style','Supermarket & Pantry','Beauty & Personal Care'] as const;
 export const categoryEmoji = ['🛍️','📱','⚡','👗','🌾','✨'];
@@ -40,7 +42,12 @@ export const products=[
  make('oil','Devon King’s Pure Vegetable Cooking Oil (5 Litres Keg)',4,19500,22000,'Pantry Saver','Zenvexa Agro Direct',['NAFDAC Certified','5L Factory Sealed','Pure Vegetable Oil'],'The kitchen staple your family trusts. Fresh, factory-sealed vegetable oil for frying, stews and everyday meals.',oil.url,120,4.8,221),
  make('sen','Executive Senator Kaftan Set with Monogram Embroidery',3,65000,78000,'Bespoke Finish','Abuja Royal Threads',['Premium Senator Fabric','Monogram Embroidery','Sizes M – XXXL'],'Make an entrance without saying a word. Refined Nigerian tailoring with a beautiful bespoke monogram finish.',kaftan.url,16,4.9,52),
  make('lat','Lattafa Khamrah Eau De Parfum (100ml Original)',5,46000,55000,'Viral Fragrance','Nectar Beauty Lounge',['100ml Original Eau De Parfum','Warm Amber & Vanilla Notes','Long-Lasting Sillage'],'Warm, rich and unforgettable. The much-loved original fragrance with notes of cinnamon, amber and vanilla.',perfume.url,29,4.8,142),
-] as const satisfies readonly Product[];
+  ...extraRows.map(([id,title,cat,price,old,badge,vendor,specs,desc,img,stock,rating,reviews])=>make(id,title,cat,price,old,badge,vendor,specs,desc,localImages[img]??img,stock,rating,reviews)),
+] satisfies Product[];
+export const BUDGET_MAX = 2000000;
+export const LOW_STOCK = 15;
+export const orderSteps = ['Order Confirmed','Packed at Hub','Out with Dispatch Rider','Delivered with a Hug'] as const;
+export function advanceOrder<T extends {step:number;status:string}>(order:T):T{const step=Math.min(4,order.step+1);return {...order,step,status:step===4?'Delivered':step===3?'In Transit':orderSteps[step-1]??order.status};}
 export function promoDiscount(code:string,subtotal:number){const c=code.trim().toUpperCase();return c==='HUG10'? Math.round(subtotal*0.1):c==='NAIJA5K'&&subtotal>50000?5000:0;}
 export type CartItem={product:Product;quantity:number};
 export function cartSubtotal(items:CartItem[]){return items.reduce((sum,i)=>sum+i.product.price*i.quantity,0);}
