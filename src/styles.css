@@ -102,3 +102,4 @@
 .denied-icon{margin:0 auto;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:var(--secondary);color:var(--primary);}
 .admin-back{display:inline-flex;gap:6px;align-items:center;justify-content:center;font-size:12px;color:var(--primary);}
 @media (max-width:900px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.admin-header .brand-name{color:var(--hero-foreground);}.admin-header .brand-tagline{color:color-mix(in oklch,var(--hero-foreground) 70%,transparent);}

@@ -13,3 +13,4 @@
 - Keep Zenvexa's storefront and other views inside a shared client-state provider; phase-one checkout and merchant updates are intentionally session-only simulations.
 - Keep product data, delivery options and pricing calculations in a browser-safe commerce module so all views share one source of truth and pricing rules can be unit-tested.
 - Define brand styling in the global semantic token system and use shared shadcn controls for interactions to keep the storefront visually consistent.
+- The storefront and /admin each mount StoreProvider; catalog, cart and orders persist in localStorage so both views share state until a backend exists. The admin role gate is a client-only demo, not real security.
