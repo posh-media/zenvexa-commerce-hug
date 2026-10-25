@@ -397,4 +397,19 @@ Protected callables already require App Check outside emulators, and the browser
 5. Approve `firebase deploy --only firestore:indexes --project zenvexa-c8d84` if server order/search queries need the defined indexes.
 6. Storage rules, App Check enforcement for Firestore/Storage, hosting/domain deployment and payment test mode remain separate approvals.
 
-No production order, staff record, customer record, payment attempt, IAM policy change, commit or push was made in this phase. Paystack remains disabled.
+No production order, staff record, customer record, payment attempt or IAM policy change was made in this phase. Paystack remains disabled.
+
+### Functions deployment attempt
+
+The user approved the exact Functions-only deployment. `firebase deploy --only functions --project zenvexa-c8d84` packaged 28 KB successfully but did **not** create a Functions revision. Google Cloud rejected the upload because the project has no App Engine application and the Cloud Functions service identity is unavailable:
+
+```text
+Could not authenticate 'service-606880758097@gcf-admin-robot.iam.gserviceaccount.com':
+Not found; Gaia id not found
+```
+
+A read-only App Engine API check returned `404 NOT_FOUND` for `apps/zenvexa-c8d84`; `firebase functions:list` confirms no deployed Functions. Required user action: create the App Engine application for `zenvexa-c8d84`, choosing `europe-west1` to match the Functions region. App Engine region cannot be changed later. After it exists and service identities propagate, rerun the same approved Functions-only deployment.
+
+### Commit and push
+
+Commit `d9f5fac` (`feat: add secure Firebase storefront and admin foundation`) contains the Firebase storefront, restored staff login, backend Functions source/tests, rules/index configuration, reviewed provisioning script and reports. It was pushed successfully to `origin/feat/firebase-backend`. Generated migration-review/catalogue-audit artifacts remain untracked; ignored `.env`/secret files were not staged or committed.
