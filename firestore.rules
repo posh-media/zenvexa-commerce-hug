@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owner(uid) { return signedIn() && request.auth.uid == uid; }
+    function staff(roles) {
+      return signedIn() && request.auth.token.email_verified == true && exists(/databases/$(database)/documents/staff/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.active == true &&
+        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role in roles;
+    }
+    match /products/{id} { allow read: if resource.data.active == true || staff(['admin', 'inventory', 'orders']); }
+    match /categories/{id} { allow read: if true; }
+    match /deliveryZones/{id} { allow read: if true; }
+    match /profiles/{uid} {
+      allow read: if owner(uid);
+      allow create, update: if owner(uid) && request.resource.data.keys().hasOnly(['displayName', 'phone']) &&
+        request.resource.data.displayName is string && request.resource.data.displayName.size() <= 120 &&
+        request.resource.data.phone is string && request.resource.data.phone.size() <= 20;
+      match /addresses/{id} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && request.resource.data.keys().hasOnly(['recipient', 'phone', 'address', 'landmark', 'state', 'zone']) &&
+          request.resource.data.recipient is string && request.resource.data.recipient.size() > 0 && request.resource.data.recipient.size() <= 120 &&
+          request.resource.data.phone is string && request.resource.data.phone.size() <= 20 &&
+          request.resource.data.address is string && request.resource.data.address.size() > 0 && request.resource.data.address.size() <= 500 &&
+          request.resource.data.landmark is string && request.resource.data.landmark.size() <= 200 &&
+          request.resource.data.state is string && request.resource.data.state.size() <= 50 &&
+          request.resource.data.zone is string && request.resource.data.zone.size() <= 80;
+      }
+    }
+    match /orders/{id} { allow read: if (signedIn() && resource.data.userId == request.auth.uid) || staff(['admin', 'orders']); }
+    match /staff/{uid} { allow read: if owner(uid); }
+    match /inventoryEvents/{id} { allow read: if staff(['admin', 'inventory']); }
+    match /auditLogs/{id} { allow read: if staff(['admin']); }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

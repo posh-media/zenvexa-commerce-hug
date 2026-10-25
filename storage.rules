@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function inventoryStaff() {
+      return request.auth != null && request.auth.token.email_verified == true &&
+        firestore.exists(/databases/(default)/documents/staff/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/staff/$(request.auth.uid)).data.active == true &&
+        firestore.get(/databases/(default)/documents/staff/$(request.auth.uid)).data.role in ['admin', 'inventory'];
+    }
+    match /products/{id}/{file} {
+      allow read: if true;
+      allow write: if inventoryStaff() && request.resource != null && request.resource.size < 2 * 1024 * 1024 &&
+        request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

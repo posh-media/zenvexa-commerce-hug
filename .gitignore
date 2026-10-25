@@ -8,6 +8,17 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.env
+.env.*
+!.env.example
+*.service-account.json
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+catalogue-migration/
+playwright-report/
+test-results/
 dist
 dist-ssr
 .output
