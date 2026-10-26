@@ -1,0 +1,13 @@
+{
+  "name": "shopbeta-functions",
+  "description": "ShopBeta Firebase Cloud Functions — Paystack webhook",
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.3.0"
+  }
+}

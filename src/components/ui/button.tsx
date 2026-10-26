@@ -1,52 +1,86 @@
-import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        amber: "bg-highlight text-highlight-foreground shadow-sm hover:bg-highlight/85",
-        hero: "border border-hero-foreground/25 bg-hero-foreground/5 text-hero-foreground hover:bg-hero-foreground/15",
-        nav: "text-muted-foreground hover:text-primary hover:bg-accent",
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
-        outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
-      },
-      size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  },
-);
+type Variant = "primary" | "secondary" | "outline" | "ghost" | "subtle" | "danger";
+type Size = "sm" | "md" | "lg" | "icon";
 
-export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
+const base =
+  "inline-flex items-center justify-center gap-2 rounded-full font-medium transition-all duration-200 ease-premium disabled:pointer-events-none disabled:opacity-45 active:scale-[0.985] whitespace-nowrap";
+
+const variants: Record<Variant, string> = {
+  primary:
+    "bg-primary text-white hover:bg-primary-600 shadow-[0_8px_20px_-10px_rgba(20,92,67,0.35)]",
+  secondary: "bg-ink text-white hover:bg-ink-soft",
+  outline: "border border-line bg-white text-ink hover:border-ink/25 hover:bg-soft",
+  ghost: "text-ink hover:bg-soft",
+  subtle: "bg-primary-50 text-primary-700 hover:bg-primary-100",
+  danger: "border border-primary-200 bg-white text-primary-700 hover:bg-primary-50",
+};
+
+const sizes: Record<Size, string> = {
+  sm: "h-9 px-4 text-[13px]",
+  md: "h-11 px-5 text-sm",
+  lg: "h-[52px] px-7 text-[15px]",
+  icon: "h-11 w-11",
+};
+
+type CommonProps = {
+  variant?: Variant;
+  size?: Size;
+  className?: string;
+  children?: React.ReactNode;
+};
+
+export function buttonClass({ variant = "primary", size = "md", className }: CommonProps) {
+  return cn(base, variants[variant], sizes[size], className);
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
-    return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
-    );
-  },
-);
-Button.displayName = "Button";
+export function Button({
+  variant,
+  size,
+  className,
+  children,
+  ...rest
+}: CommonProps & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button className={buttonClass({ variant, size, className })} {...rest}>
+      {children}
+    </button>
+  );
+}
 
-export { Button, buttonVariants };
+export function ButtonLink({
+  variant,
+  size,
+  className,
+  children,
+  href,
+  ...rest
+}: CommonProps & React.ComponentProps<typeof Link>) {
+  return (
+    <Link href={href} className={buttonClass({ variant, size, className })} {...rest}>
+      {children}
+    </Link>
+  );
+}
+
+export function IconButton({
+  className,
+  label,
+  children,
+  ...rest
+}: { label: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      aria-label={label}
+      title={label}
+      className={cn(
+        "inline-flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink transition-all duration-200 hover:border-ink/20 hover:bg-soft",
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}

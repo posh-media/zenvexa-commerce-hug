@@ -1,0 +1,53 @@
+rules_version = '2';
+
+// ShopBeta Firebase Storage Rules — paste into Firebase Console → Storage → Rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource != null &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.size < 5 * 1024 * 1024;
+    }
+
+    function userRole() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(request.auth.uid)
+      ).data.role;
+    }
+
+    function isStaff() {
+      return isSignedIn() && userRole() in [
+        'super_admin',
+        'admin',
+        'inventory_manager',
+        'order_manager',
+        'customer_support',
+        'marketing_manager',
+        'staff'
+      ];
+    }
+
+    // Public read for catalogue / banner assets
+    match /admin/{folder}/{fileName} {
+      allow read: if true;
+      allow write: if isStaff() && isImage();
+    }
+
+    // Customer avatars — owner only
+    match /users/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isSignedIn()
+        && request.auth.uid == userId
+        && isImage();
+    }
+
+    // Deny everything else by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

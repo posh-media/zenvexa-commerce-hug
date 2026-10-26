@@ -1,0 +1,238 @@
+rules_version = '2';
+
+// ShopBeta Firestore Security Rules — Phase 8 RBAC
+// Paste into Firebase Console → Firestore → Rules → Publish
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Any staff / admin role (customers excluded)
+    function isStaff() {
+      return isSignedIn() && userRole() in [
+        'super_admin',
+        'admin',
+        'inventory_manager',
+        'order_manager',
+        'customer_support',
+        'marketing_manager',
+        'staff'
+      ];
+    }
+
+    function isSuperOrAdmin() {
+      return isSignedIn() && userRole() in ['super_admin', 'admin'];
+    }
+
+    function canManageCatalog() {
+      return isSignedIn() && userRole() in [
+        'super_admin', 'admin', 'inventory_manager'
+      ];
+    }
+
+    function canManageOrders() {
+      return isSignedIn() && userRole() in [
+        'super_admin', 'admin', 'order_manager', 'customer_support'
+      ];
+    }
+
+    function canManageCustomers() {
+      return isSignedIn() && userRole() in [
+        'super_admin', 'admin', 'customer_support'
+      ];
+    }
+
+    function canManageMarketing() {
+      return isSignedIn() && userRole() in [
+        'super_admin', 'admin', 'marketing_manager'
+      ];
+    }
+
+    // Legacy alias used by older docs / comments
+    function isAdmin() {
+      return isStaff();
+    }
+
+    function ownsUserIdField() {
+      return isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    function ownsExistingUserIdField() {
+      return isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    function isGuestUserId(uid) {
+      return uid is string && uid.matches('guest_.*');
+    }
+
+    function isStockDecrement() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['stock', 'stockStatus', 'updatedAt', 'salesCount']) &&
+        request.resource.data.stock is number &&
+        resource.data.stock is number &&
+        request.resource.data.stock >= 0 &&
+        request.resource.data.stock < resource.data.stock;
+    }
+
+    // ---------- Public catalogue ----------
+    match /products/{productId} {
+      allow read: if true;
+      allow create, delete: if canManageCatalog();
+      allow update: if canManageCatalog() || isStockDecrement();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if canManageCatalog();
+    }
+
+    match /brands/{brandId} {
+      allow read: if true;
+      allow write: if canManageCatalog();
+    }
+
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow write: if isSuperOrAdmin();
+    }
+
+    // Squad keys are write-only for admins and read only through the Admin SDK.
+    match /privatePaymentSettings/{provider} {
+      allow read: if false;
+      allow create, update: if provider == 'squad' && isSuperOrAdmin() &&
+        request.resource.data.keys().hasOnly(['sandboxSecretKey', 'liveSecretKey', 'updatedAt']) &&
+        (!('sandboxSecretKey' in request.resource.data) || request.resource.data.sandboxSecretKey is string) &&
+        (!('liveSecretKey' in request.resource.data) || request.resource.data.liveSecretKey is string);
+      allow create, update: if provider == 'monnify' && isSuperOrAdmin() &&
+        request.resource.data.keys().hasOnly(['sandboxApiKey', 'sandboxSecretKey', 'sandboxContractCode', 'liveApiKey', 'liveSecretKey', 'liveContractCode', 'updatedAt']) &&
+        (!('sandboxApiKey' in request.resource.data) || request.resource.data.sandboxApiKey is string) &&
+        (!('sandboxSecretKey' in request.resource.data) || request.resource.data.sandboxSecretKey is string) &&
+        (!('sandboxContractCode' in request.resource.data) || request.resource.data.sandboxContractCode is string) &&
+        (!('liveApiKey' in request.resource.data) || request.resource.data.liveApiKey is string) &&
+        (!('liveSecretKey' in request.resource.data) || request.resource.data.liveSecretKey is string) &&
+        (!('liveContractCode' in request.resource.data) || request.resource.data.liveContractCode is string);
+      allow delete: if false;
+    }
+
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write: if canManageMarketing() || isSuperOrAdmin();
+    }
+
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if canManageMarketing() || isSuperOrAdmin();
+    }
+
+    // Advertising expense ledger — staff-only (admins); customers denied
+    match /ads/{adId} {
+      allow read, write: if isStaff();
+    }
+
+    // Aggregated page-visit counters — public increment-only writes, staff read
+    match /pageVisitTotals/{pathId} {
+      allow read: if isStaff();
+      allow create: if request.resource.data.count == 1 &&
+        request.resource.data.path is string &&
+        request.resource.data.keys().hasOnly(['path', 'count', 'lastVisitAt']);
+      allow update: if request.resource.data.count ==
+          resource.data.count + 1 &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['count', 'lastVisitAt']);
+      allow delete: if false;
+    }
+
+    match /pageVisitDays/{dayId} {
+      allow read: if isStaff();
+      allow create: if request.resource.data.count == 1 &&
+        request.resource.data.date is string &&
+        request.resource.data.keys().hasOnly(['date', 'count', 'updatedAt']);
+      allow update: if request.resource.data.count ==
+          resource.data.count + 1 &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['count', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isStaff() || ownsExistingUserIdField();
+      allow write: if isSuperOrAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isSuperOrAdmin() || isStaff();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    // ---------- Accounts ----------
+    match /users/{userId} {
+      allow read: if isOwner(userId) || canManageCustomers() || isSuperOrAdmin();
+      allow create: if isOwner(userId) &&
+        (!('role' in request.resource.data) || request.resource.data.role == 'customer');
+      allow update: if (isOwner(userId) &&
+          (!('role' in request.resource.data) ||
+            request.resource.data.role == resource.data.role)) ||
+        isSuperOrAdmin() ||
+        (canManageCustomers() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'active', 'updatedAt']));
+      allow delete: if isSuperOrAdmin();
+    }
+
+    match /addresses/{addressId} {
+      allow read: if isStaff() || ownsExistingUserIdField();
+      allow create: if ownsUserIdField();
+      allow update, delete: if isStaff() || ownsExistingUserIdField();
+    }
+
+    match /carts/{userId} {
+      allow read, write: if isOwner(userId) || isStaff();
+    }
+
+    match /wishlists/{userId} {
+      allow read, write: if isOwner(userId) || isStaff();
+    }
+
+    // ---------- Orders ----------
+    match /orders/{orderId} {
+      allow read: if isStaff() ||
+        ownsExistingUserIdField() ||
+        isGuestUserId(resource.data.userId);
+      allow create: if ownsUserIdField() ||
+        isGuestUserId(request.resource.data.userId);
+      allow update: if canManageOrders() || isSuperOrAdmin();
+      allow delete: if isSuperOrAdmin();
+    }
+
+    // ---------- Reviews ----------
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if ownsUserIdField();
+      allow update, delete: if isStaff() || ownsExistingUserIdField();
+    }
+
+    // ---------- Notifications ----------
+    match /notifications/{notificationId} {
+      allow read: if isStaff() || ownsExistingUserIdField();
+      allow update: if ownsExistingUserIdField() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['read', 'updatedAt']);
+      allow delete: if isStaff() || ownsExistingUserIdField();
+      allow create: if canManageMarketing() || canManageCustomers() || isSuperOrAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

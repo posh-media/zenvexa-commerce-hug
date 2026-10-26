@@ -1,53 +1,81 @@
-import * as React from "react";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
+"use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-const Tabs = TabsPrimitive.Root;
+export type TabItem = {
+  id: string;
+  label: string;
+  count?: number;
+  content: React.ReactNode;
+};
 
-const TabsList = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.List>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.List
-    ref={ref}
-    className={cn(
-      "inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
-      className,
-    )}
-    {...props}
-  />
-));
-TabsList.displayName = TabsPrimitive.List.displayName;
+export function Tabs({
+  items,
+  className,
+  variant = "underline",
+}: {
+  items: TabItem[];
+  className?: string;
+  variant?: "underline" | "pill";
+}) {
+  const [active, setActive] = useState(items[0]?.id);
+  const current = items.find((item) => item.id === active) ?? items[0];
 
-const TabsTrigger = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow",
-      className,
-    )}
-    {...props}
-  />
-));
-TabsTrigger.displayName = TabsPrimitive.Trigger.displayName;
-
-const TabsContent = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.Content
-    ref={ref}
-    className={cn(
-      "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-      className,
-    )}
-    {...props}
-  />
-));
-TabsContent.displayName = TabsPrimitive.Content.displayName;
-
-export { Tabs, TabsList, TabsTrigger, TabsContent };
+  return (
+    <div className={className}>
+      <div
+        role="tablist"
+        aria-label="Content sections"
+        className={cn(
+          "no-scrollbar flex gap-1 overflow-x-auto",
+          variant === "underline" && "border-b border-line",
+          variant === "pill" && "rounded-full border border-line bg-white p-1",
+        )}
+      >
+        {items.map((item) => {
+          const isActive = item.id === current?.id;
+          return (
+            <button
+              key={item.id}
+              role="tab"
+              type="button"
+              aria-selected={isActive}
+              onClick={() => setActive(item.id)}
+              className={cn(
+                "shrink-0 whitespace-nowrap text-sm font-medium transition-all duration-200",
+                variant === "underline" &&
+                  cn(
+                    "-mb-px border-b-2 px-4 py-3",
+                    isActive
+                      ? "border-primary text-ink"
+                      : "border-transparent text-muted hover:text-ink",
+                  ),
+                variant === "pill" &&
+                  cn(
+                    "rounded-full px-4 py-2",
+                    isActive ? "bg-ink text-white" : "text-muted hover:bg-soft hover:text-ink",
+                  ),
+              )}
+            >
+              {item.label}
+              {typeof item.count === "number" ? (
+                <span
+                  className={cn(
+                    "ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                    isActive ? "bg-primary-50 text-primary-700" : "bg-soft text-muted",
+                  )}
+                >
+                  {item.count}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel" className="pt-6 sb-fade-up" key={current?.id}>
+        {current?.content}
+      </div>
+    </div>
+  );
+}

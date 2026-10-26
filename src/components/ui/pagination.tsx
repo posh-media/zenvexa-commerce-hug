@@ -1,98 +1,73 @@
-import * as React from "react";
-import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
+"use client";
 
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ButtonProps, buttonVariants } from "@/components/ui/button";
 
-const Pagination = ({ className, ...props }: React.ComponentProps<"nav">) => (
-  <nav
-    role="navigation"
-    aria-label="pagination"
-    className={cn("mx-auto flex w-full justify-center", className)}
-    {...props}
-  />
-);
-Pagination.displayName = "Pagination";
-
-const PaginationContent = React.forwardRef<HTMLUListElement, React.ComponentProps<"ul">>(
-  ({ className, ...props }, ref) => (
-    <ul ref={ref} className={cn("flex flex-row items-center gap-1", className)} {...props} />
-  ),
-);
-PaginationContent.displayName = "PaginationContent";
-
-const PaginationItem = React.forwardRef<HTMLLIElement, React.ComponentProps<"li">>(
-  ({ className, ...props }, ref) => <li ref={ref} className={cn("", className)} {...props} />,
-);
-PaginationItem.displayName = "PaginationItem";
-
-type PaginationLinkProps = {
-  isActive?: boolean;
-} & Pick<ButtonProps, "size"> &
-  React.ComponentProps<"a">;
-
-const PaginationLink = ({ className, isActive, size = "icon", ...props }: PaginationLinkProps) => (
-  <a
-    aria-current={isActive ? "page" : undefined}
-    className={cn(
-      buttonVariants({
-        variant: isActive ? "outline" : "ghost",
-        size,
-      }),
-      className,
-    )}
-    {...props}
-  />
-);
-PaginationLink.displayName = "PaginationLink";
-
-const PaginationPrevious = ({
+export function Pagination({
+  current = 1,
+  total = 8,
+  onChange,
   className,
-  ...props
-}: React.ComponentProps<typeof PaginationLink>) => (
-  <PaginationLink
-    aria-label="Go to previous page"
-    size="default"
-    className={cn("gap-1 pl-2.5", className)}
-    {...props}
-  >
-    <ChevronLeft className="h-4 w-4" />
-    <span>Previous</span>
-  </PaginationLink>
-);
-PaginationPrevious.displayName = "PaginationPrevious";
+}: {
+  current?: number;
+  total?: number;
+  onChange?: (page: number) => void;
+  className?: string;
+}) {
+  const pages = Array.from({ length: total }, (_, i) => i + 1).filter(
+    (page) =>
+      page === 1 ||
+      page === total ||
+      (page >= current - 1 && page <= current + 1),
+  );
 
-const PaginationNext = ({ className, ...props }: React.ComponentProps<typeof PaginationLink>) => (
-  <PaginationLink
-    aria-label="Go to next page"
-    size="default"
-    className={cn("gap-1 pr-2.5", className)}
-    {...props}
-  >
-    <span>Next</span>
-    <ChevronRight className="h-4 w-4" />
-  </PaginationLink>
-);
-PaginationNext.displayName = "PaginationNext";
-
-const PaginationEllipsis = ({ className, ...props }: React.ComponentProps<"span">) => (
-  <span
-    aria-hidden
-    className={cn("flex h-9 w-9 items-center justify-center", className)}
-    {...props}
-  >
-    <MoreHorizontal className="h-4 w-4" />
-    <span className="sr-only">More pages</span>
-  </span>
-);
-PaginationEllipsis.displayName = "PaginationEllipsis";
-
-export {
-  Pagination,
-  PaginationContent,
-  PaginationLink,
-  PaginationItem,
-  PaginationPrevious,
-  PaginationNext,
-  PaginationEllipsis,
-};
+  return (
+    <nav
+      aria-label="Pagination"
+      className={cn("flex flex-wrap items-center justify-center gap-2", className)}
+    >
+      <button
+        type="button"
+        aria-label="Previous page"
+        disabled={current === 1}
+        onClick={() => onChange?.(current - 1)}
+        className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line bg-white px-4 text-[13px] font-medium text-ink transition-colors hover:bg-soft disabled:opacity-40"
+      >
+        <ChevronLeft className="h-4 w-4" aria-hidden />
+        <span className="hidden sm:inline">Previous</span>
+      </button>
+      {pages.map((page, index) => {
+        const prev = pages[index - 1];
+        const gap = prev && page - prev > 1;
+        return (
+          <span key={page} className="flex items-center gap-2">
+            {gap ? <span className="px-1 text-muted">…</span> : null}
+            <button
+              type="button"
+              aria-current={page === current ? "page" : undefined}
+              onClick={() => onChange?.(page)}
+              className={cn(
+                "grid h-10 w-10 place-items-center rounded-full text-[13px] font-medium transition-all duration-200",
+                page === current
+                  ? "bg-primary text-white shadow-[0_8px_18px_-10px_rgba(253,70,70,0.9)]"
+                  : "border border-line bg-white text-ink hover:bg-soft",
+              )}
+            >
+              {page}
+            </button>
+          </span>
+        );
+      })}
+      <button
+        type="button"
+        aria-label="Next page"
+        disabled={current >= total}
+        onClick={() => onChange?.(current + 1)}
+        className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line bg-white px-4 text-[13px] font-medium text-ink transition-colors hover:bg-soft disabled:opacity-40"
+      >
+        <span className="hidden sm:inline">Next</span>
+        <ChevronRight className="h-4 w-4" aria-hidden />
+      </button>
+    </nav>
+  );
+}
