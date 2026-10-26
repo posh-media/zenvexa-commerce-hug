@@ -1,51 +1,28 @@
-import * as React from "react";
-import * as AccordionPrimitive from "@radix-ui/react-accordion";
-import { ChevronDown } from "lucide-react";
-
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const Accordion = AccordionPrimitive.Root;
-
-const AccordionItem = React.forwardRef<
-  React.ElementRef<typeof AccordionPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Item>
->(({ className, ...props }, ref) => (
-  <AccordionPrimitive.Item ref={ref} className={cn("border-b", className)} {...props} />
-));
-AccordionItem.displayName = "AccordionItem";
-
-const AccordionTrigger = React.forwardRef<
-  React.ElementRef<typeof AccordionPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Header className="flex">
-    <AccordionPrimitive.Trigger
-      ref={ref}
-      className={cn(
-        "flex flex-1 items-center justify-between py-4 text-sm font-medium cursor-pointer transition-all hover:underline text-left [&[data-state=open]>svg]:rotate-180",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
-    </AccordionPrimitive.Trigger>
-  </AccordionPrimitive.Header>
-));
-AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName;
-
-const AccordionContent = React.forwardRef<
-  React.ElementRef<typeof AccordionPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Content>
->(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Content
-    ref={ref}
-    className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down"
-    {...props}
-  >
-    <div className={cn("pb-4 pt-0", className)}>{children}</div>
-  </AccordionPrimitive.Content>
-));
-AccordionContent.displayName = AccordionPrimitive.Content.displayName;
-
-export { Accordion, AccordionItem, AccordionTrigger, AccordionContent };
+export function Accordion({
+  items,
+  className,
+  defaultOpen = 0,
+}: {
+  items: Array<{ question: string; answer: string }>;
+  className?: string;
+  defaultOpen?: number;
+}) {
+  return (
+    <div className={cn("divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white", className)}>
+      {items.map((item, index) => (
+        <details key={item.question} open={index === defaultOpen} className="group">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 text-left text-[15px] font-medium text-ink transition-colors hover:bg-soft/60">
+            <span>{item.question}</span>
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line text-muted transition-transform duration-300 ease-premium group-open:rotate-45 group-open:border-primary group-open:text-primary">
+              <Plus className="h-4 w-4" aria-hidden />
+            </span>
+          </summary>
+          <p className="px-5 pb-5 text-[15px] leading-relaxed text-muted">{item.answer}</p>
+        </details>
+      ))}
+    </div>
+  );
+}

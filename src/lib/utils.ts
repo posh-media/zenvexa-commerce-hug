@@ -1,6 +1,8 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import clsx, { type ClassValue } from "clsx";
+
+export { discountPercent, formatPrice } from "@/utils/currency";
+export { slugify } from "@/utils/string";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+  return clsx(inputs);
 }
