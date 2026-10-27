@@ -59,6 +59,17 @@ node scripts/migrate-zenvexa-products.mjs `
 
 Dry runs read the destination catalogue and write a report under `migration-review/`. They do not write Firestore.
 
+A credential-free preflight can inspect the public catalogue and produce the same collision/reference report without a service account:
+
+```powershell
+node scripts/migrate-zenvexa-products.mjs `
+  --backup=migration-review/zenvexa-firebase-backup-2026-10-27T12-07-31-263Z `
+  --project=shop-day84j `
+  --public-dry-run
+```
+
+It requires the six `NEXT_PUBLIC_FIREBASE_*` variables for the destination project and cannot be combined with `--apply` or `--rollback`.
+
 ## Import
 
 After reviewing the dry-run report:
