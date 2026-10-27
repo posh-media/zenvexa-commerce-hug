@@ -1,5 +1,6 @@
 import type { Product as ProductView } from "@/lib/data";
 import { PAGINATION } from "@/constants/app";
+import { prioritizeRealImages } from "@/lib/product-image";
 
 export type CatalogSort =
   | "newest"
@@ -123,36 +124,45 @@ export function sortProductViews(
   const next = [...items];
   switch (sort) {
     case "newest":
-      return next.sort(
+      next.sort(
         (a, b) =>
           (b.createdAt ?? 0) - (a.createdAt ?? 0) || b.id.localeCompare(a.id),
       );
+      break;
     case "price-asc":
-      return next.sort((a, b) => a.price - b.price);
+      next.sort((a, b) => a.price - b.price);
+      break;
     case "price-desc":
-      return next.sort((a, b) => b.price - a.price);
+      next.sort((a, b) => b.price - a.price);
+      break;
     case "rating":
-      return next.sort((a, b) => b.rating - a.rating);
+      next.sort((a, b) => b.rating - a.rating);
+      break;
     case "reviews":
-      return next.sort((a, b) => b.reviews - a.reviews);
+      next.sort((a, b) => b.reviews - a.reviews);
+      break;
     case "discount":
-      return next.sort((a, b) => {
+      next.sort((a, b) => {
         const da = a.oldPrice ? a.oldPrice - a.price : 0;
         const db = b.oldPrice ? b.oldPrice - b.price : 0;
         return db - da;
       });
+      break;
     case "featured":
-      return next.sort((a, b) => {
+      next.sort((a, b) => {
         const fa = a.tags.includes("featured") ? 1 : 0;
         const fb = b.tags.includes("featured") ? 1 : 0;
         return fb - fa || b.rating - a.rating;
       });
+      break;
     case "alphabetical":
-      return next.sort((a, b) => a.name.localeCompare(b.name));
+      next.sort((a, b) => a.name.localeCompare(b.name));
+      break;
     case "relevant":
     default:
-      return next;
+      break;
   }
+  return prioritizeRealImages(next);
 }
 
 export function paginateProductViews(

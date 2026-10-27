@@ -6,6 +6,7 @@ import { Maximize2, ZoomIn } from "lucide-react";
 import type { IconKey } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { ProductMedia } from "@/components/commerce/product-media";
+import { usableProductImages } from "@/lib/product-image";
 
 export function ProductGallery({
   icon,
@@ -20,8 +21,9 @@ export function ProductGallery({
   images?: string[];
   views?: string[];
 }) {
+  const [failedSources, setFailedSources] = useState<ReadonlySet<string>>(new Set());
   const slides = useMemo(() => {
-    const urls = images.filter(Boolean);
+    const urls = usableProductImages(images);
     if (urls.length) {
       return urls.map((src, index) => ({
         key: `${src}-${index}`,
@@ -40,7 +42,7 @@ export function ProductGallery({
   return (
     <div className="flex flex-col gap-4 sm:flex-row-reverse">
       <div className="relative min-w-0 flex-1">
-        {current?.src ? (
+        {current?.src && !failedSources.has(current.src) ? (
           <div
             className={cn(
               "relative aspect-square w-full overflow-hidden rounded-2xl bg-soft transition-transform duration-500 ease-premium",
@@ -54,6 +56,9 @@ export function ProductGallery({
               sizes="(max-width: 1024px) 100vw, 50vw"
               className="object-contain p-6"
               priority
+              onError={() =>
+                setFailedSources((previous) => new Set(previous).add(current.src!))
+              }
               placeholder="blur"
               blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjRjRGNkZBIi8+PC9zdmc+"
             />
@@ -106,13 +111,16 @@ export function ProductGallery({
               index === active ? "border-primary" : "border-transparent hover:border-line",
             )}
           >
-            {slide.src ? (
+            {slide.src && !failedSources.has(slide.src) ? (
               <span className="relative block h-20 w-20 bg-soft">
                 <Image
                   src={slide.src}
                   alt=""
                   fill
                   sizes="80px"
+                  onError={() =>
+                    setFailedSources((previous) => new Set(previous).add(slide.src!))
+                  }
                   className="object-contain p-2"
                 />
               </span>

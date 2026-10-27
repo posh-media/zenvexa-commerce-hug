@@ -29,6 +29,9 @@ yarn-error.log*
 .env*.local
 /functions/.env
 /functions/node_modules
+/secrets/
+*.service-account.json
+serviceAccount*.json
 
 # vercel
 .vercel

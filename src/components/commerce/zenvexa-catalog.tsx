@@ -5,6 +5,7 @@ import type { Product } from "@/lib/data";
 import { formatPrice } from "@/lib/utils";
 import { ProductGrid } from "./product-card";
 import { CatalogEmpty } from "./catalog-state";
+import { prioritizeRealImages } from "@/lib/product-image";
 
 /** Display-only filters over ShopBeta's active product views. Checkout keeps its authoritative pricing. */
 export function ZenvexaCatalog({ items }: { items: Product[] }) {
@@ -27,7 +28,7 @@ export function ZenvexaCatalog({ items }: { items: Product[] }) {
     if (sort === "low") result.sort((a, b) => a.price - b.price);
     if (sort === "high") result.sort((a, b) => b.price - a.price);
     if (sort === "rating") result.sort((a, b) => b.rating - a.rating);
-    return result;
+    return prioritizeRealImages(result);
   }, [items, search, budget, deals, sort]);
   return (
     <>

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { IconKey } from "@/lib/data";
 import { cn } from "@/lib/utils";
+import { isRealProductImage } from "@/lib/product-image";
 
 const map: Record<IconKey, React.ElementType> = {
   laptop: Laptop,
@@ -83,7 +84,7 @@ export function ProductMedia({
   priority?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
-  const showImage = Boolean(src) && !failed;
+  const showImage = isRealProductImage(src) && !failed;
 
   return (
     <div

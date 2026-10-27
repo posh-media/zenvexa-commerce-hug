@@ -12,6 +12,8 @@
     "seed:catalog": "node scripts/seed-catalog.mjs",
     "admin:bootstrap": "node scripts/bootstrap-super-admin.mjs",
     "admin:set-role": "node scripts/set-user-role.mjs",
+    "export:zenvexa": "node scripts/export-zenvexa-products.mjs",
+    "migrate:zenvexa": "node scripts/migrate-zenvexa-products.mjs",
     "test:monnify": "node tests/monnify-payments.test.cjs"
   },
   "dependencies": {
