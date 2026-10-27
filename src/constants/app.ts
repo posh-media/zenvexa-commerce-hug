@@ -80,6 +80,7 @@ export const PAYMENT_METHODS = [
   "squad",
   "monnify",
   "flutterwave",
+  "bachs",
   "cash-on-delivery",
   /** @deprecated Prefer `paystack` — kept for legacy orders. */
   "card",
@@ -95,6 +96,7 @@ export const PAYMENT_GATEWAYS = [
   "squad",
   "monnify",
   "flutterwave",
+  "bachs",
   "cod",
   "none",
 ] as const;

@@ -120,6 +120,12 @@ service cloud.firestore {
         (!('liveApiKey' in request.resource.data) || request.resource.data.liveApiKey is string) &&
         (!('liveSecretKey' in request.resource.data) || request.resource.data.liveSecretKey is string) &&
         (!('liveContractCode' in request.resource.data) || request.resource.data.liveContractCode is string);
+      allow create, update: if provider == 'bachs' && isSuperOrAdmin() &&
+        request.resource.data.keys().hasOnly(['sandboxApiKey', 'liveApiKey', 'sandboxWebhookSecret', 'liveWebhookSecret', 'updatedAt']) &&
+        (!('sandboxApiKey' in request.resource.data) || request.resource.data.sandboxApiKey is string) &&
+        (!('liveApiKey' in request.resource.data) || request.resource.data.liveApiKey is string) &&
+        (!('sandboxWebhookSecret' in request.resource.data) || request.resource.data.sandboxWebhookSecret is string) &&
+        (!('liveWebhookSecret' in request.resource.data) || request.resource.data.liveWebhookSecret is string);
       allow create, update: if provider in ['paystack', 'korapay', 'flutterwave'] && isSuperOrAdmin() &&
         request.resource.data.keys().hasOnly(['secretKey', 'updatedAt']) &&
         (!('secretKey' in request.resource.data) || request.resource.data.secretKey is string);

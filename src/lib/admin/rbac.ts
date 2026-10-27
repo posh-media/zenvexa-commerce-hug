@@ -138,6 +138,11 @@ export const ADMIN_NAV: Array<{
     permission: "notifications:write",
   },
   { href: "/admin/analytics", label: "Analytics", permission: "analytics:view" },
+  {
+    href: "/admin/integrations",
+    label: "Payment & Integrations",
+    permission: "settings:write",
+  },
   { href: "/admin/settings", label: "Settings", permission: "settings:write" },
   { href: "/admin/audit", label: "Audit log", permission: "audit:read" },
 ];

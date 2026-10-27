@@ -637,10 +637,27 @@ test("public provider settings expose only visibility and retain existing provid
     paystack: false,
     korapay: true,
     flutterwave: false,
+    bachs: false,
     cod: true,
     codAllowedStates: [],
     paystackKeyConfigured: false,
     korapayKeyConfigured: false,
     flutterwaveKeyConfigured: false,
+    bachsKeyConfigured: false,
+    squadKeyConfigured: { sandboxSecretKey: false, liveSecretKey: false },
+    monnifyKeyConfigured: {
+      sandboxApiKey: false,
+      sandboxSecretKey: false,
+      sandboxContractCode: false,
+      liveApiKey: false,
+      liveSecretKey: false,
+      liveContractCode: false,
+    },
+    bachsFieldsConfigured: {
+      sandboxApiKey: false,
+      liveApiKey: false,
+      sandboxWebhookSecret: false,
+      liveWebhookSecret: false,
+    },
   });
 });

@@ -27,6 +27,7 @@ import {
   initializeKorapayPayment,
   initializeSquadPayment,
   initializeMonnifyPayment,
+  initializeBachsPayment,
   getPaymentProviderSettings,
   type CodFeeGateway,
 } from "@/services/payments.service";
@@ -56,6 +57,7 @@ function PaymentProviderOptions({
     paystack: boolean;
     korapay: boolean;
     flutterwave: boolean;
+    bachs: boolean;
     cod: boolean;
     codAllowedStates: string[];
   } | null>(null);
@@ -123,6 +125,15 @@ function PaymentProviderOptions({
           onChange={() => onSelectProvider("monnify")}
           label="Monnify (card / bank / USSD)"
           description="You will be redirected to Monnify to complete payment"
+        />
+      )}
+      {providers.bachs && (
+        <Radio
+          name="payment"
+          checked={selectedProvider === "bachs"}
+          onChange={() => onSelectProvider("bachs")}
+          label="Bachs (card / bank transfer / mobile money)"
+          description="You will be redirected to Bachs to complete payment"
         />
       )}
       {providers.cod && (
@@ -211,7 +222,7 @@ export default function CheckoutPage() {
   const [codFeeGateway, setCodFeeGateway] = useState<CodFeeGateway>("paystack");
   const [codFeeGateways, setCodFeeGateways] = useState<
     Record<CodFeeGateway, boolean>
-  >({ paystack: false, korapay: false, squad: false, monnify: false });
+  >({ paystack: false, korapay: false, squad: false, monnify: false, bachs: false });
 
   useEffect(() => {
     void getPaymentProviderSettings().then((settings) => {
@@ -220,6 +231,7 @@ export default function CheckoutPage() {
         korapay: settings.korapay,
         squad: settings.squad,
         monnify: settings.monnify,
+        bachs: settings.bachs,
       };
       setCodFeeGateways(enabled);
       const first = (Object.keys(enabled) as CodFeeGateway[]).find(
@@ -253,6 +265,8 @@ export default function CheckoutPage() {
         setPaymentMethod("squad");
       } else if (settings.monnify) {
         setPaymentMethod("monnify");
+      } else if (settings.bachs) {
+        setPaymentMethod("bachs");
       }
     };
     
@@ -347,6 +361,11 @@ export default function CheckoutPage() {
     if (method === "monnify" && !settings.monnify) {
       setError("Monnify is currently disabled.");
       toastError("Payment unavailable", "Monnify is currently disabled.");
+      return;
+    }
+    if (method === "bachs" && !settings.bachs) {
+      setError("Bachs is currently disabled.");
+      toastError("Payment unavailable", "Bachs is currently disabled.");
       return;
     }
 
@@ -527,6 +546,18 @@ export default function CheckoutPage() {
           return;
         }
         toastSuccess("Redirecting to Monnify");
+        window.location.assign(init.authorizationUrl);
+        return;
+      }
+      if (method === "bachs") {
+        const init = await initializeBachsPayment({ orderId: result.order.id });
+        if (!init.ok) {
+          setError(init.reason);
+          toastError("Payment setup failed", init.reason);
+          router.push(`/payments/failed?order=${encodeURIComponent(result.order.orderNumber ?? result.order.id)}&reason=${encodeURIComponent(init.reason)}`);
+          return;
+        }
+        toastSuccess("Redirecting to Bachs");
         window.location.assign(init.authorizationUrl);
         return;
       }
@@ -818,6 +849,7 @@ export default function CheckoutPage() {
                     {codFeeGateways.korapay && <option value="korapay">KoraPay</option>}
                     {codFeeGateways.squad && <option value="squad">Squad by GTBank</option>}
                     {codFeeGateways.monnify && <option value="monnify">Monnify</option>}
+                    {codFeeGateways.bachs && <option value="bachs">Bachs</option>}
                   </Select>
                 </div>
               ) : null}
@@ -913,6 +945,8 @@ export default function CheckoutPage() {
                           ? "Redirecting to Squad…"
                           : paymentMethod === "monnify"
                             ? "Redirecting to Monnify…"
+                            : paymentMethod === "bachs"
+                              ? "Redirecting to Bachs…"
                           : "Placing order…"
                     : paymentMethod === "paystack" || paymentMethod === "card"
                       ? "Pay with Paystack"
@@ -922,6 +956,8 @@ export default function CheckoutPage() {
                           ? "Pay with Squad"
                           : paymentMethod === "monnify"
                             ? "Pay with Monnify"
+                            : paymentMethod === "bachs"
+                              ? "Pay with Bachs"
                           : paymentMethod === "flutterwave"
                             ? "Pay with Flutterwave"
                             : "Place order"}

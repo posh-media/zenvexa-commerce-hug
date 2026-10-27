@@ -75,7 +75,7 @@ export async function initializeSquadForOrder(orderId: string) {
     return order;
   });
 
-  const callback = new URL("/payments/callback", getAppUrl());
+  const callback = new URL("/payment/transactiondetails", getAppUrl());
   callback.searchParams.set("order", order.orderNumber || order.id);
   callback.searchParams.set("provider", "squad");
   callback.searchParams.set("reference", reference);

@@ -127,7 +127,12 @@ export function confirmCashOnDelivery(orderId: string) {
   });
 }
 
-export type CodFeeGateway = "paystack" | "korapay" | "squad" | "monnify";
+export type CodFeeGateway =
+  | "paystack"
+  | "korapay"
+  | "squad"
+  | "monnify"
+  | "bachs";
 
 export function initializeCodCommitmentFeePayment(input: {
   orderId: string;
@@ -168,6 +173,7 @@ let providerSettings: {
   paystack: boolean;
   korapay: boolean;
   flutterwave: boolean;
+  bachs: boolean;
   cod: boolean;
   codAllowedStates: string[];
 } | null = null;
@@ -192,6 +198,7 @@ async function fetchProviderSettings() {
       paystack: process.env.NEXT_PUBLIC_PAYSTACK_ENABLED === 'true',
       korapay: process.env.NEXT_PUBLIC_KORAPAY_ENABLED === 'true',
       flutterwave: process.env.NEXT_PUBLIC_FLUTTERWAVE_ENABLED === 'true',
+      bachs: process.env.NEXT_PUBLIC_BACHS_ENABLED === 'true',
       cod: process.env.NEXT_PUBLIC_COD_ENABLED !== 'false',
       codAllowedStates: [],
     };
@@ -223,6 +230,11 @@ export async function isClientKorapayEnabled() {
 export async function isClientFlutterwaveEnabled() {
   const settings = await getPaymentProviderSettings();
   return settings.flutterwave;
+}
+
+export async function isClientBachsEnabled() {
+  const settings = await getPaymentProviderSettings();
+  return settings.bachs;
 }
 
 export async function isClientCodEnabled() {
@@ -289,4 +301,11 @@ export function initializeMonnifyPayment(input: { orderId: string }) {
 }
 export function verifyMonnifyPayment(reference: string) {
   return postJson<VerifyPaystackResponse>("/api/payments/monnify/verify", { reference });
+}
+
+export function initializeBachsPayment(input: { orderId: string }) {
+  return postJson<InitializePaystackResponse>("/api/payments/bachs/initialize", input);
+}
+export function verifyBachsPayment(reference: string) {
+  return postJson<VerifyPaystackResponse>("/api/payments/bachs/verify", { reference });
 }

@@ -24,16 +24,19 @@ import { getSquadConfiguration } from "@/lib/server/squad-settings";
 import { initializeSquadTransaction } from "@/lib/server/squad";
 import { getMonnifyConfiguration } from "@/lib/server/monnify-settings";
 import { initializeMonnifyTransaction } from "@/lib/server/monnify";
+import { getBachsConfiguration } from "@/lib/server/bachs-settings";
+import { createBachsCheckoutSession } from "@/lib/server/bachs";
 import { stripUndefined } from "@/utils/firestore";
 import type { Order } from "@/types/order";
 
-export type CodFeeGateway = "paystack" | "korapay" | "squad" | "monnify";
+export type CodFeeGateway = "paystack" | "korapay" | "squad" | "monnify" | "bachs";
 
 function feeReferenceForOrder(order: Order, gateway: CodFeeGateway) {
   // Squad and Monnify webhooks gate on provider-shaped references
   // (`SQ`/`MN` + 32 hex), so those gateways must keep the existing format.
   if (gateway === "squad") return `SQ${randomUUID().replaceAll("-", "")}`;
   if (gateway === "monnify") return `MN${randomUUID().replaceAll("-", "")}`;
+  if (gateway === "bachs") return `BA${randomUUID().replaceAll("-", "")}`;
   const base = (order.orderNumber || order.id).replace(/[^a-zA-Z0-9]/g, "");
   return `SBFEE_${gateway.toUpperCase()}_${base}_${randomUUID().replaceAll("-", "")}`.slice(0, 100);
 }
@@ -103,6 +106,7 @@ export async function initializeCodCommitmentFee(input: {
   let monnifyConfig:
     | Awaited<ReturnType<typeof getMonnifyConfiguration>>
     | undefined;
+  let bachsConfig: Awaited<ReturnType<typeof getBachsConfiguration>> | undefined;
   if (gateway === "paystack") {
     if (!(await isPaystackEnabled()) || !(await isPaystackConfigured())) {
       return { ok: false as const, reason: "Paystack is not configured or is currently disabled." };
@@ -115,6 +119,11 @@ export async function initializeCodCommitmentFee(input: {
     squadConfig = await getSquadConfiguration();
     if (!squadConfig.enabled || !squadConfig.secretKey) {
       return { ok: false as const, reason: "Squad is not configured or is currently disabled." };
+    }
+  } else if (gateway === "bachs") {
+    bachsConfig = await getBachsConfiguration();
+    if (!bachsConfig.enabled || !bachsConfig.apiKey) {
+      return { ok: false as const, reason: "Bachs is not configured or is currently disabled." };
     }
   } else {
     monnifyConfig = await getMonnifyConfiguration();
@@ -145,7 +154,8 @@ export async function initializeCodCommitmentFee(input: {
       status: "processing",
       customerEmail: email,
       metadata: stripUndefined({
-        sandbox: squadConfig?.sandbox ?? monnifyConfig?.sandbox,
+        sandbox:
+          squadConfig?.sandbox ?? monnifyConfig?.sandbox ?? bachsConfig?.sandbox,
       }),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -202,6 +212,29 @@ export async function initializeCodCommitmentFee(input: {
         metadata: { orderId: order.id, orderNumber: order.orderNumber, purpose: COD_FEE_PURPOSE },
       });
       initialized = res;
+    } else if (gateway === "bachs") {
+      const appUrl = getAppUrl();
+      const cancel = new URL("/payments/cancelled", appUrl);
+      cancel.searchParams.set("order", order.orderNumber || order.id);
+      cancel.searchParams.set("reference", reference);
+      const session = await createBachsCheckoutSession(bachsConfig!, {
+        email,
+        customerName: order.customer?.name,
+        phone: order.customer?.phone,
+        amount: fee.toFixed(2),
+        currency: "NGN",
+        reference,
+        successUrl: callbackUrl,
+        cancelUrl: cancel.toString(),
+        metadata: stripUndefined({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          purpose: COD_FEE_PURPOSE,
+        }),
+        idempotencyKey: `codfee-${order.id}`,
+      });
+      await paymentRef.update({ checkoutId: session.checkoutId });
+      initialized = { authorizationUrl: session.checkoutUrl, reference };
     } else {
       const res = await initializeMonnifyTransaction(monnifyConfig!, {
         email,

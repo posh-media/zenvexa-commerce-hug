@@ -5,6 +5,7 @@ import { COLLECTIONS } from "@/constants/collections";
 import { verifyKorapayForReference, verifyPaystackForReference } from "@/lib/server/payment-service";
 import { verifySquadForReference } from "@/lib/server/squad-payment-service";
 import { verifyMonnifyForReference } from "@/lib/server/monnify-payment-service";
+import { verifyBachsForReference } from "@/lib/server/bachs-payment-service";
 import { reportPaymentFailure } from "@/lib/monitoring";
 import {
   clientKeyFromRequest,
@@ -20,7 +21,8 @@ type VerifyResult =
   | Awaited<ReturnType<typeof verifyPaystackForReference>>
   | Awaited<ReturnType<typeof verifyKorapayForReference>>
   | Awaited<ReturnType<typeof verifySquadForReference>>
-  | Awaited<ReturnType<typeof verifyMonnifyForReference>>;
+  | Awaited<ReturnType<typeof verifyMonnifyForReference>>
+  | Awaited<ReturnType<typeof verifyBachsForReference>>;
 
 /**
  * Order-aware manual reverification. The gateway, reference and expected
@@ -156,6 +158,9 @@ export async function POST(request: Request) {
         break;
       case "monnify":
         result = await verifyMonnifyForReference(reference);
+        break;
+      case "bachs":
+        result = await verifyBachsForReference(reference);
         break;
       default:
         return NextResponse.json(

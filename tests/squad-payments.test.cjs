@@ -610,6 +610,9 @@ test("public payment settings expose visibility without returning Squad keys", a
   assert.equal(settings.korapay, false);
   assert.equal(settings.cod, true);
   assert.deepEqual(Object.keys(settings).sort(), [
+    "bachs",
+    "bachsFieldsConfigured",
+    "bachsKeyConfigured",
     "cod",
     "codAllowedStates",
     "flutterwave",
@@ -617,9 +620,11 @@ test("public payment settings expose visibility without returning Squad keys", a
     "korapay",
     "korapayKeyConfigured",
     "monnify",
+    "monnifyKeyConfigured",
     "paystack",
     "paystackKeyConfigured",
     "squad",
+    "squadKeyConfigured",
   ]);
   assert.equal(
     JSON.stringify(settings).includes("must-not-be-returned"),

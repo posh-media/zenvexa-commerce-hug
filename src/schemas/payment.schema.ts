@@ -39,7 +39,7 @@ export const confirmCodBodySchema = z.object({
 
 export const initializeCodFeeBodySchema = z.object({
   orderId: z.string().min(1),
-  gateway: z.enum(["paystack", "korapay", "squad", "monnify"]),
+  gateway: z.enum(["paystack", "korapay", "squad", "monnify", "bachs"]),
 });
 
 export const reverifyBodySchema = z.object({

@@ -1,11 +1,18 @@
 import { CURRENCY } from "@/constants/app";
 
+/** Canonical production storefront URL — never redirect customers to localhost. */
+export const PRODUCTION_SITE_URL = "https://www.shopbetaa.store";
+
 export function getAppUrl() {
-  return (
+  const configured =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-    "http://localhost:3000"
-  );
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+  if (configured) return configured;
+  // Never fall back to localhost in a production build — it would leak into
+  // gateway callback/redirect URLs.
+  return process.env.NODE_ENV === "production"
+    ? PRODUCTION_SITE_URL
+    : "http://localhost:3000";
 }
 
 export async function getPaystackSecretKey() {
@@ -97,6 +104,14 @@ export async function isPaystackConfigured() {
 export async function isPaystackEnabled() {
   const { isPaymentProviderEnabled } = await import("@/services/settings.service");
   return await isPaymentProviderEnabled('paystack');
+}
+
+export async function isBachsEnabled() {
+  const { getAppSettings } = await import("@/services/settings.service");
+  const settings = await getAppSettings();
+  const enabled = settings?.payments?.bachsEnabled;
+  if (enabled !== undefined) return enabled;
+  return process.env.NEXT_PUBLIC_BACHS_ENABLED === "true";
 }
 
 /** HTTPS base for Paystack Cloud Functions (initialize + webhook). */
