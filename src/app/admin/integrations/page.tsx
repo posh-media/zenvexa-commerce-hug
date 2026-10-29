@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Label } from "@/components/ui/field";
 import {
   getAppSettings,
-  migrateLegacyPaymentSecrets,
   saveProviderSecrets,
   updateAppSettings,
 } from "@/services/settings.service";
@@ -114,8 +113,7 @@ function WebhookUrlRow({ label, url }: { label: string; url: string }) {
   );
 }
 
-const FUNCTIONS_BASE =
-  "https://us-central1-shop-day84j.cloudfunctions.net";
+const FUNCTIONS_BASE = "https://us-central1-shop-day84j.cloudfunctions.net";
 
 export default function AdminIntegrationsPage() {
   const authUser = useUserStore((s) => s.authUser);
@@ -184,9 +182,6 @@ export default function AdminIntegrationsPage() {
   const [saved, setSaved] = useState<Partial<Record<ProviderKey, boolean>>>({});
 
   useEffect(() => {
-    // Copy any legacy paymentSecrets into the write-only collection and
-    // remove them from the publicly-readable settings document.
-    void migrateLegacyPaymentSecrets().catch(() => undefined);
     void fetch("/api/payment-settings")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -240,7 +235,9 @@ export default function AdminIntegrationsPage() {
           { payments: { paystackEnabled: form.paystackEnabled } },
           actor,
         );
-        await saveProviderSecrets({ paystackSecretKey: form.paystackSecretKey });
+        await saveProviderSecrets({
+          paystackSecretKey: form.paystackSecretKey,
+        });
         break;
       case "korapay":
         await updateAppSettings(
@@ -342,24 +339,25 @@ export default function AdminIntegrationsPage() {
     }
   };
 
-  const onSaveProvider = (provider: ProviderKey) => async (event: FormEvent) => {
-    event.preventDefault();
-    if (!actor.id || saving) return;
-    setSaving(provider);
-    try {
-      await saveProvider(provider);
-      clearPaymentProviderSettingsCache();
-      setSaved((s) => ({ ...s, [provider]: true }));
-      toastSuccess("Saved", `${provider} settings updated`);
-    } catch (err) {
-      toastError(
-        "Save failed",
-        err instanceof Error ? err.message : `Could not save ${provider}.`,
-      );
-    } finally {
-      setSaving(null);
-    }
-  };
+  const onSaveProvider =
+    (provider: ProviderKey) => async (event: FormEvent) => {
+      event.preventDefault();
+      if (!actor.id || saving) return;
+      setSaving(provider);
+      try {
+        await saveProvider(provider);
+        clearPaymentProviderSettingsCache();
+        setSaved((s) => ({ ...s, [provider]: true }));
+        toastSuccess("Saved", `${provider} settings updated`);
+      } catch (err) {
+        toastError(
+          "Save failed",
+          err instanceof Error ? err.message : `Could not save ${provider}.`,
+        );
+      } finally {
+        setSaving(null);
+      }
+    };
 
   const onSaveAll = async () => {
     if (!actor.id || saving) return;
@@ -544,7 +542,9 @@ export default function AdminIntegrationsPage() {
               }
             />
             <div>
-              <Label htmlFor="squadSandboxSecret">Squad Sandbox Secret Key</Label>
+              <Label htmlFor="squadSandboxSecret">
+                Squad Sandbox Secret Key
+              </Label>
               <Input
                 id="squadSandboxSecret"
                 type="password"

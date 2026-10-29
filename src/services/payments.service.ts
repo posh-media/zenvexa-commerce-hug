@@ -1,3 +1,4 @@
+import { authenticatedFetch } from "@/lib/client-api";
 /**
  * Client-side payment helpers — call backend routes only (no secrets).
  */
@@ -71,7 +72,7 @@ function clientPaymentLog(
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const response = await authenticatedFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -89,10 +90,14 @@ export async function initializePaystackPayment(input: {
   orderId: string;
   callbackUrl?: string;
 }): Promise<InitializePaystackResponse> {
-  clientPaymentLog("init.request", "Calling /api/payments/paystack/initialize", {
-    orderId: input.orderId,
-    hasCallback: Boolean(input.callbackUrl),
-  });
+  clientPaymentLog(
+    "init.request",
+    "Calling /api/payments/paystack/initialize",
+    {
+      orderId: input.orderId,
+      hasCallback: Boolean(input.callbackUrl),
+    },
+  );
 
   const result = await postJson<InitializePaystackResponse>(
     "/api/payments/paystack/initialize",
@@ -128,11 +133,7 @@ export function confirmCashOnDelivery(orderId: string) {
 }
 
 export type CodFeeGateway =
-  | "paystack"
-  | "korapay"
-  | "squad"
-  | "monnify"
-  | "bachs";
+  "paystack" | "korapay" | "squad" | "monnify" | "bachs";
 
 export function initializeCodCommitmentFeePayment(input: {
   orderId: string;
@@ -180,7 +181,7 @@ let providerSettings: {
 
 async function fetchProviderSettings() {
   try {
-    const response = await fetch('/api/payment-settings');
+    const response = await fetch("/api/payment-settings");
     const data = await response.json();
     providerSettings = {
       ...data,
@@ -190,16 +191,16 @@ async function fetchProviderSettings() {
     };
     return providerSettings;
   } catch (error) {
-    console.error('Failed to fetch payment settings:', error);
+    console.error("Failed to fetch payment settings:", error);
     // Fallback to environment variables during migration
     providerSettings = {
-      monnify: process.env.NEXT_PUBLIC_MONNIFY_ENABLED === 'true',
-      squad: process.env.NEXT_PUBLIC_SQUAD_ENABLED === 'true',
-      paystack: process.env.NEXT_PUBLIC_PAYSTACK_ENABLED === 'true',
-      korapay: process.env.NEXT_PUBLIC_KORAPAY_ENABLED === 'true',
-      flutterwave: process.env.NEXT_PUBLIC_FLUTTERWAVE_ENABLED === 'true',
-      bachs: process.env.NEXT_PUBLIC_BACHS_ENABLED === 'true',
-      cod: process.env.NEXT_PUBLIC_COD_ENABLED !== 'false',
+      monnify: process.env.NEXT_PUBLIC_MONNIFY_ENABLED === "true",
+      squad: process.env.NEXT_PUBLIC_SQUAD_ENABLED === "true",
+      paystack: process.env.NEXT_PUBLIC_PAYSTACK_ENABLED === "true",
+      korapay: process.env.NEXT_PUBLIC_KORAPAY_ENABLED === "true",
+      flutterwave: process.env.NEXT_PUBLIC_FLUTTERWAVE_ENABLED === "true",
+      bachs: process.env.NEXT_PUBLIC_BACHS_ENABLED === "true",
+      cod: process.env.NEXT_PUBLIC_COD_ENABLED !== "false",
       codAllowedStates: [],
     };
     return providerSettings;
@@ -289,23 +290,38 @@ export function verifyKorapayPayment(reference: string) {
 }
 
 export function initializeSquadPayment(input: { orderId: string }) {
-  return postJson<InitializePaystackResponse>("/api/payments/squad/initialize", input);
+  return postJson<InitializePaystackResponse>(
+    "/api/payments/squad/initialize",
+    input,
+  );
 }
 
 export function verifySquadPayment(reference: string) {
-  return postJson<VerifyPaystackResponse>("/api/payments/squad/verify", { reference });
+  return postJson<VerifyPaystackResponse>("/api/payments/squad/verify", {
+    reference,
+  });
 }
 
 export function initializeMonnifyPayment(input: { orderId: string }) {
-  return postJson<InitializePaystackResponse>("/api/payments/monnify/initialize", input);
+  return postJson<InitializePaystackResponse>(
+    "/api/payments/monnify/initialize",
+    input,
+  );
 }
 export function verifyMonnifyPayment(reference: string) {
-  return postJson<VerifyPaystackResponse>("/api/payments/monnify/verify", { reference });
+  return postJson<VerifyPaystackResponse>("/api/payments/monnify/verify", {
+    reference,
+  });
 }
 
 export function initializeBachsPayment(input: { orderId: string }) {
-  return postJson<InitializePaystackResponse>("/api/payments/bachs/initialize", input);
+  return postJson<InitializePaystackResponse>(
+    "/api/payments/bachs/initialize",
+    input,
+  );
 }
 export function verifyBachsPayment(reference: string) {
-  return postJson<VerifyPaystackResponse>("/api/payments/bachs/verify", { reference });
+  return postJson<VerifyPaystackResponse>("/api/payments/bachs/verify", {
+    reference,
+  });
 }

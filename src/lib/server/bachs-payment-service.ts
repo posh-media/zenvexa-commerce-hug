@@ -1,22 +1,23 @@
-import { randomUUID } from "node:crypto";
-import { FieldValue } from "firebase-admin/firestore";
-import { getAdminDb } from "@/lib/server/firebase-admin";
-import { getAppUrl } from "@/lib/server/env";
-import { getBachsConfiguration } from "@/lib/server/bachs-settings";
+import { COD_FEE_PURPOSE } from "@/lib/cod";
 import {
   createBachsCheckoutSession,
   getBachsCheckoutSession,
   normalizeBachsCheckout,
 } from "@/lib/server/bachs";
-import { appendTimelineAdmin } from "@/lib/server/order-timeline";
+import { getBachsConfiguration } from "@/lib/server/bachs-settings";
+import { getAppUrl } from "@/lib/server/env";
 import {
   finalizeCodCommitmentFee,
   finalizeSuccessfulPayment,
 } from "@/lib/server/finalize-payment";
-import { COD_FEE_PURPOSE } from "@/lib/cod";
+import { getAdminDb } from "@/lib/server/firebase-admin";
 import { notifyMakeOrderPaid } from "@/lib/server/make-webhook";
-import { stripUndefined } from "@/utils/firestore";
+import { appendTimelineAdmin } from "@/lib/server/order-timeline";
+import { currentStoreContext } from "@/lib/server/store-context";
 import type { Order } from "@/types/order";
+import { stripUndefined } from "@/utils/firestore";
+import { FieldValue } from "firebase-admin/firestore";
+import { randomUUID } from "node:crypto";
 
 export async function initializeBachsForOrder(orderId: string) {
   const config = await getBachsConfiguration();
@@ -53,6 +54,9 @@ export async function initializeBachsForOrder(orderId: string) {
         orderNumber: order.orderNumber,
         userId: order.userId,
         gateway: "bachs",
+        storeId: currentStoreContext().id,
+        storeName: order.storeName,
+        credentialVersion: currentStoreContext().credentialVersion,
         reference,
         amount,
         amountKobo: Math.round(amount * 100),
@@ -162,9 +166,6 @@ export async function verifyBachsForReference(
   const expectedAmount = isCodFee
     ? Number(payment.amount)
     : Number(order.total ?? order.totals?.total);
-  normalized.amount = expectedAmount;
-  normalized.customerEmail = order.customer?.email;
-
   if (normalized.status !== "paid") {
     if (normalized.status === "failed" || normalized.status === "cancelled") {
       await db.runTransaction(async (tx) => {
@@ -206,6 +207,29 @@ export async function verifyBachsForReference(
       status: normalized.status,
     };
   }
+
+  const amount = Number(
+    session.pricing?.amount ?? session.total_amount ?? session.amount,
+  );
+  const currency = String(session.pricing?.currency ?? "").toUpperCase();
+  if (
+    session.checkout_id !== payment.checkoutId ||
+    !Number.isFinite(amount) ||
+    Math.round(amount * 100) !== Math.round(expectedAmount * 100) ||
+    currency !== "NGN"
+  )
+    return {
+      ok: false as const,
+      reason: "Payment amount, currency or checkout identity does not match.",
+    };
+  if (
+    session.customer_details?.email &&
+    session.customer_details.email.trim().toLowerCase() !==
+      order.customer?.email?.trim().toLowerCase()
+  )
+    return { ok: false as const, reason: "Payment customer does not match." };
+  normalized.amount = amount;
+  normalized.customerEmail = order.customer?.email;
 
   const finalized = isCodFee
     ? await finalizeCodCommitmentFee({

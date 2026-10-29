@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { ORDER_STATUS, PAYMENT_STATUS } from "@/constants/app";
+import { z } from "zod";
 import { addressSchema } from "./user.schema";
 
 export const orderItemSchema = z
@@ -37,6 +37,8 @@ export const orderTotalsSchema = z
 
 export const orderDocumentSchema = z
   .object({
+    storeId: z.enum(["shopbeta", "zenvexa"]).optional(),
+    storeName: z.string().trim().min(1).optional(),
     orderNumber: z.string().optional(),
     reference: z.string().optional(),
     userId: z.string().optional(),

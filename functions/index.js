@@ -17,3 +17,5 @@ exports.korapayWebhook = korapayWebhook;
 exports.korapayInitialize = korapayInitialize;
 exports.squadWebhook = squadWebhook;
 exports.bachsWebhook = bachsWebhook;
+
+exports.monnifyWebhook = require("./src/monnifyWebhook").monnifyWebhook;

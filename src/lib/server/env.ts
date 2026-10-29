@@ -1,23 +1,40 @@
 import { CURRENCY } from "@/constants/app";
+import { currentStoreId, deploymentEnv } from "@/lib/server/store-context";
+import { deploymentStoreId } from "@/lib/store";
 
 /** Canonical production storefront URL — never redirect customers to localhost. */
 export const PRODUCTION_SITE_URL = "https://www.shopbetaa.store";
 
 export function getAppUrl() {
+  const id = currentStoreId();
   const configured =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
-  if (configured) return configured;
-  // Never fall back to localhost in a production build — it would leak into
-  // gateway callback/redirect URLs.
-  return process.env.NODE_ENV === "production"
-    ? PRODUCTION_SITE_URL
-    : "http://localhost:3000";
+    (id === deploymentStoreId()
+      ? process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL
+      : undefined) || process.env[`${id.toUpperCase()}_APP_URL`];
+  const origin =
+    configured ||
+    (id === "shopbeta"
+      ? PRODUCTION_SITE_URL
+      : "https://www.zenvexacommerce.com");
+  const url = new URL(origin);
+  if (url.protocol !== "https:" && url.hostname !== "localhost")
+    throw new Error("Invalid store URL.");
+  return url.origin;
+}
+export function trustedCallbackUrl(
+  value: string | undefined,
+  fallback: string,
+) {
+  if (!value) return fallback;
+  const url = new URL(value);
+  if (url.origin !== new URL(getAppUrl()).origin)
+    throw new Error("Untrusted payment return URL.");
+  return url.toString();
 }
 
 export async function getPaystackSecretKey() {
   const { getPaymentSecretKey } = await import("@/services/settings.service");
-  const key = await getPaymentSecretKey('paystack');
+  const key = await getPaymentSecretKey("paystack");
   if (!key) {
     throw new Error("Paystack secret key is not configured.");
   }
@@ -35,21 +52,23 @@ export async function getPaystackWebhookSecret() {
 
 export function getMakeWebhookUrl() {
   return (
-    process.env.MAKE_WEBHOOK_URL?.trim() ||
-    process.env.MAKE_COM_WEBHOOK_URL?.trim() ||
+    deploymentEnv("MAKE_WEBHOOK_URL")?.trim() ||
+    deploymentEnv("MAKE_COM_WEBHOOK_URL")?.trim() ||
     ""
   );
 }
 
 export async function isCodEnabled() {
   // COD is handled differently - check settings or fallback to env
-  const settings = await import("@/services/settings.service").then(m => m.getAppSettings());
+  const settings = await import("@/services/settings.service").then((m) =>
+    m.getAppSettings(),
+  );
   const codEnabled = settings?.payments?.codEnabled;
-  
+
   if (codEnabled !== undefined) {
     return codEnabled;
   }
-  
+
   // Fallback to environment variable
   const raw = process.env.NEXT_PUBLIC_COD_ENABLED ?? "true";
   return raw !== "0" && raw.toLowerCase() !== "false";
@@ -67,18 +86,20 @@ export async function getCodAllowedStates() {
 }
 
 export async function isFlutterwaveEnabled() {
-  const { isPaymentProviderEnabled } = await import("@/services/settings.service");
-  return await isPaymentProviderEnabled('flutterwave');
+  const { isPaymentProviderEnabled } =
+    await import("@/services/settings.service");
+  return await isPaymentProviderEnabled("flutterwave");
 }
 
 export async function isKorapayEnabled() {
-  const { isPaymentProviderEnabled } = await import("@/services/settings.service");
-  return await isPaymentProviderEnabled('korapay');
+  const { isPaymentProviderEnabled } =
+    await import("@/services/settings.service");
+  return await isPaymentProviderEnabled("korapay");
 }
 
 export async function getKorapaySecretKey() {
   const { getPaymentSecretKey } = await import("@/services/settings.service");
-  const key = await getPaymentSecretKey('korapay');
+  const key = await getPaymentSecretKey("korapay");
   if (!key) {
     throw new Error("KoraPay secret key is not configured.");
   }
@@ -91,19 +112,20 @@ export function getKorapayPublicKey() {
 
 export async function isKorapayConfigured() {
   const { getPaymentSecretKey } = await import("@/services/settings.service");
-  const key = await getPaymentSecretKey('korapay');
+  const key = await getPaymentSecretKey("korapay");
   return Boolean(key);
 }
 
 export async function isPaystackConfigured() {
   const { getPaymentSecretKey } = await import("@/services/settings.service");
-  const key = await getPaymentSecretKey('paystack');
+  const key = await getPaymentSecretKey("paystack");
   return Boolean(key);
 }
 
 export async function isPaystackEnabled() {
-  const { isPaymentProviderEnabled } = await import("@/services/settings.service");
-  return await isPaymentProviderEnabled('paystack');
+  const { isPaymentProviderEnabled } =
+    await import("@/services/settings.service");
+  return await isPaymentProviderEnabled("paystack");
 }
 
 export async function isBachsEnabled() {

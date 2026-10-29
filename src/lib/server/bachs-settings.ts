@@ -1,4 +1,8 @@
-import { getAdminDb } from "@/lib/server/firebase-admin";
+import {
+  deploymentEnv,
+  providerSecrets,
+  storeSettingsRef,
+} from "@/lib/server/store-context";
 
 /**
  * Bachs credentials live in the write-only `privatePaymentSettings/bachs`
@@ -6,31 +10,32 @@ import { getAdminDb } from "@/lib/server/firebase-admin";
  * Sandbox and live keys/webhook signing secrets are stored separately.
  */
 export async function getBachsConfiguration(sandboxOverride?: boolean) {
-  const db = getAdminDb();
   const [settings, secrets] = await Promise.all([
-    db.collection("settings").doc("app").get(),
-    db.collection("privatePaymentSettings").doc("bachs").get(),
+    storeSettingsRef().get(),
+    providerSecrets("bachs").then((data) => ({ data: () => data })),
   ]);
   const payments = settings.data()?.payments;
   const sandbox =
     sandboxOverride ??
     payments?.bachsSandbox ??
-    process.env.BACHS_SANDBOX !== "false";
+    deploymentEnv("BACHS_SANDBOX") !== "false";
   const data = secrets.data() ?? {};
   const apiKey: string =
     (sandbox ? data.sandboxApiKey : data.liveApiKey) ||
-    (sandbox ? process.env.BACHS_SANDBOX_API_KEY : process.env.BACHS_LIVE_API_KEY) ||
+    (sandbox
+      ? deploymentEnv("BACHS_SANDBOX_API_KEY")
+      : deploymentEnv("BACHS_LIVE_API_KEY")) ||
     "";
   const webhookSecret: string =
     (sandbox ? data.sandboxWebhookSecret : data.liveWebhookSecret) ||
     (sandbox
-      ? process.env.BACHS_SANDBOX_WEBHOOK_SECRET
-      : process.env.BACHS_LIVE_WEBHOOK_SECRET) ||
+      ? deploymentEnv("BACHS_SANDBOX_WEBHOOK_SECRET")
+      : deploymentEnv("BACHS_LIVE_WEBHOOK_SECRET")) ||
     "";
   return {
     enabled:
       payments?.bachsEnabled ??
-      process.env.NEXT_PUBLIC_BACHS_ENABLED === "true",
+      deploymentEnv("NEXT_PUBLIC_BACHS_ENABLED") === "true",
     sandbox: Boolean(sandbox),
     apiKey: apiKey.trim(),
     webhookSecret: webhookSecret.trim(),
@@ -39,14 +44,13 @@ export async function getBachsConfiguration(sandboxOverride?: boolean) {
 
 /** Signing secrets for both environments — webhooks accept either. */
 export async function getBachsWebhookSecrets() {
-  const db = getAdminDb();
   const secrets = (
-    await db.collection("privatePaymentSettings").doc("bachs").get()
+    await providerSecrets("bachs").then((data) => ({ data: () => data }))
   ).data();
   return [
     secrets?.sandboxWebhookSecret,
     secrets?.liveWebhookSecret,
-    process.env.BACHS_SANDBOX_WEBHOOK_SECRET,
-    process.env.BACHS_LIVE_WEBHOOK_SECRET,
+    deploymentEnv("BACHS_SANDBOX_WEBHOOK_SECRET"),
+    deploymentEnv("BACHS_LIVE_WEBHOOK_SECRET"),
   ].filter((v): v is string => typeof v === "string" && Boolean(v.trim()));
 }

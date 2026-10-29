@@ -41,6 +41,8 @@ export type SocialLinks = {
 
 /** Singleton `settings/app` document. */
 export type AppSettingsDocument = {
+  storeId?: "shopbeta" | "zenvexa";
+
   currencies?: CurrencyOption[];
   deliveryOptions?: DeliveryOption[];
   supportedCountries?: string[];

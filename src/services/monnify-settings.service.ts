@@ -1,5 +1,7 @@
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { getDb } from "@/firebase/firestore";
+import { providerDocumentSegments, requireStoreName } from "@/lib/store";
+import { getAppSettings } from "@/services/settings.service";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 export type MonnifySecrets = {
   sandboxApiKey?: string;
@@ -18,8 +20,12 @@ export async function saveMonnifySecrets(input: MonnifySecrets) {
       .map(([key, value]) => [key, value!.trim()]),
   );
   if (!Object.keys(patch).length) return;
+  requireStoreName(await getAppSettings());
   await setDoc(
-    doc(getDb(), "privatePaymentSettings", "monnify"),
+    doc(
+      getDb(),
+      ...(providerDocumentSegments("monnify") as [string, ...string[]]),
+    ),
     { ...patch, updatedAt: serverTimestamp() },
     { merge: true },
   );

@@ -39,3 +39,14 @@ serviceAccount*.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Private store migration backups and local credentials
+.env
+.env.upload
+/store-migration-private/
+
+# Local emulator output
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/

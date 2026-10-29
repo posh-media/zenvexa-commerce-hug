@@ -37,8 +37,7 @@ export default function AdminCustomersPage() {
   const authUser = useUserStore((s) => s.authUser);
   const profile = useUserStore((s) => s.profile);
   const actorRole = profile?.role;
-  const canManageRoles =
-    actorRole === "super_admin" || actorRole === "admin";
+  const canManageRoles = actorRole === "super_admin" || actorRole === "admin";
   const actor = {
     id: authUser?.uid ?? "",
     email: profile?.email ?? authUser?.email ?? undefined,
@@ -51,7 +50,9 @@ export default function AdminCustomersPage() {
   const [savingRole, setSavingRole] = useState(false);
 
   const reload = () =>
-    listCustomersAdmin().then(setCustomers).catch(() => undefined);
+    listCustomersAdmin()
+      .then(setCustomers)
+      .catch(() => undefined);
 
   useEffect(() => {
     void reload();
@@ -102,7 +103,7 @@ export default function AdminCustomersPage() {
     <RequireAdmin permission="customers:read">
       <AdminPageHeader
         title="Customers"
-        description="Profiles, roles, spend, addresses and account status. Auth credentials are never exposed."
+        description="Customers with orders in this store. Account role and status changes apply to both stores."
       />
       <div className="mb-4">
         <Input
@@ -117,7 +118,14 @@ export default function AdminCustomersPage() {
           <AdminEmpty title="No customers found" />
         ) : (
           <AdminTable
-            headers={["Customer", "Role", "Orders", "Spent", "Status", "Joined"]}
+            headers={[
+              "Customer",
+              "Role",
+              "Orders",
+              "Spent",
+              "Status",
+              "Joined",
+            ]}
           >
             {filtered.map((customer) => (
               <tr
@@ -165,9 +173,7 @@ export default function AdminCustomersPage() {
             <div className="space-y-4 text-[13px]">
               <div>
                 <h2 className="text-lg font-semibold text-ink">
-                  {selected.displayName ||
-                    selected.display_name ||
-                    "Customer"}
+                  {selected.displayName || selected.display_name || "Customer"}
                 </h2>
                 <p className="text-muted">{selected.email}</p>
                 <p className="text-muted">{selected.phone || "No phone"}</p>

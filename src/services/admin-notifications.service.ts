@@ -1,17 +1,19 @@
+import { listOrdersAdmin } from "@/services/admin-orders.service";
 import {
-  addDoc,
-  getDocs,
-  serverTimestamp,
-} from "firebase/firestore";
-import { notificationsCollection, usersCollection } from "@/firebase/collections";
+  notificationsCollection,
+  usersCollection,
+} from "@/firebase/collections";
+import { deploymentStoreId } from "@/lib/store";
+import { storeDocuments } from "@/lib/store-queries";
 import { writeAuditLog } from "@/services/audit.service";
 import type { AppNotification, NotificationDocument } from "@/types/commerce";
+import { addDoc, getDocs, serverTimestamp } from "firebase/firestore";
 
 type Actor = { id: string; email?: string };
 
 export async function listAllNotificationsAdmin(): Promise<AppNotification[]> {
-  const snapshot = await getDocs(notificationsCollection());
-  return snapshot.docs.map((d) => d.data());
+  const documents = await storeDocuments(notificationsCollection());
+  return documents.map((d) => d.data());
 }
 
 export async function createNotificationAdmin(
@@ -20,6 +22,7 @@ export async function createNotificationAdmin(
 ) {
   const payload: NotificationDocument = {
     ...input,
+    storeId: deploymentStoreId(),
     read: false,
     createdAt: serverTimestamp() as never,
     updatedAt: serverTimestamp() as never,
@@ -50,8 +53,11 @@ export async function broadcastNotificationAdmin(
   actor: Actor,
 ) {
   const users = await getDocs(usersCollection());
+  const customers = new Set(
+    (await listOrdersAdmin()).map((order) => order.userId),
+  );
   let created = 0;
-  for (const user of users.docs) {
+  for (const user of users.docs.filter((user) => customers.has(user.id))) {
     await createNotificationAdmin(
       {
         userId: user.id,

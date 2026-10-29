@@ -6,13 +6,22 @@ const crypto = require("node:crypto");
 const ts = require("typescript");
 
 // Run the actual TypeScript modules with mocked network/database boundaries.
-function loader(overrides = {}) {
+function loader(overrides = {}, options = {}) {
+  if (!options.realMiddleware)
+    overrides = {
+      "@/lib/server/store-request": {
+        withStoreRequest: async (_req, fn) => fn(),
+      },
+      ...overrides,
+    };
   const cache = new Map();
   function load(name) {
     if (Object.hasOwn(overrides, name)) return overrides[name];
     if (!name.startsWith("@/")) return require(name);
     if (cache.has(name)) return cache.get(name).exports;
-    const file = path.join(__dirname, "../src", name.slice(2) + ".ts");
+    let file = path.join(__dirname, "../src", name.slice(2) + ".ts");
+    if (!fs.existsSync(file))
+      file = path.join(__dirname, "../src", name.slice(2), "index.ts");
     const module = { exports: {} };
     cache.set(name, module);
     const output = ts.transpileModule(fs.readFileSync(file, "utf8"), {
@@ -23,7 +32,24 @@ function loader(overrides = {}) {
       },
     }).outputText;
     new Function("require", "module", "exports", output)(
-      load,
+      (specifier) =>
+        load(
+          specifier.startsWith(".")
+            ? "@/" +
+                path.posix.normalize(
+                  path.posix.join(
+                    path
+                      .relative(
+                        path.join(__dirname, "../src"),
+                        path.dirname(file),
+                      )
+                      .split(path.sep)
+                      .join("/"),
+                    specifier,
+                  ),
+                )
+            : specifier,
+        ),
       module,
       module.exports,
     );
@@ -46,6 +72,17 @@ function database(initial) {
   const ref = (collection, id) => ({
     id,
     path: `${collection}/${id}`,
+    collection: (name) => query(`${collection}/${id}/${name}`),
+    create: async function (value) {
+      if (records.has(this.path)) throw new Error("exists");
+      records.set(this.path, value);
+    },
+    set: async function (value, options) {
+      records.set(
+        this.path,
+        options?.merge ? { ...records.get(this.path), ...value } : value,
+      );
+    },
     get: async function () {
       return snap(this);
     },
@@ -64,10 +101,11 @@ function database(initial) {
           .filter(
             ([k, v]) =>
               k.startsWith(`${collection}/`) &&
+              k.split("/").length === collection.split("/").length + 1 &&
               filters.every(([field, value]) => v[field] === value),
           )
           .slice(0, count)
-          .map(([key]) => snap(ref(collection, key.split("/")[1])));
+          .map(([key]) => snap(ref(collection, key.split("/").at(-1))));
         return { docs, empty: docs.length === 0 };
       },
     };
@@ -79,7 +117,7 @@ function database(initial) {
       const result = await fn({
         get: async (r) => {
           assert.equal(writes.length, 0, "Firestore reads must precede writes");
-          return snap(r);
+          return !r.path && typeof r.get === "function" ? r.get() : snap(r);
         },
         set: (r, value, options) =>
           writes.push(() =>

@@ -1,3 +1,5 @@
+process.env.NEXT_PUBLIC_STORE_ID = "shopbeta";
+process.env.STORE_ID = "shopbeta";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -7,12 +9,20 @@ const ts = require("typescript");
 
 // Run the actual TypeScript modules with mocked network/database boundaries.
 function loader(overrides = {}) {
+  overrides = {
+    "@/lib/server/store-request": {
+      withStoreRequest: async (_req, fn) => fn(),
+    },
+    ...overrides,
+  };
   const cache = new Map();
   function load(name) {
     if (Object.hasOwn(overrides, name)) return overrides[name];
     if (!name.startsWith("@/")) return require(name);
     if (cache.has(name)) return cache.get(name).exports;
-    const file = path.join(__dirname, "../src", name.slice(2) + ".ts");
+    let file = path.join(__dirname, "../src", name.slice(2) + ".ts");
+    if (!fs.existsSync(file))
+      file = path.join(__dirname, "../src", name.slice(2), "index.ts");
     const module = { exports: {} };
     cache.set(name, module);
     const output = ts.transpileModule(fs.readFileSync(file, "utf8"), {
@@ -23,7 +33,24 @@ function loader(overrides = {}) {
       },
     }).outputText;
     new Function("require", "module", "exports", output)(
-      load,
+      (specifier) =>
+        load(
+          specifier.startsWith(".")
+            ? "@/" +
+                path.posix.normalize(
+                  path.posix.join(
+                    path
+                      .relative(
+                        path.join(__dirname, "../src"),
+                        path.dirname(file),
+                      )
+                      .split(path.sep)
+                      .join("/"),
+                    specifier,
+                  ),
+                )
+            : specifier,
+        ),
       module,
       module.exports,
     );
@@ -46,6 +73,17 @@ function database(initial) {
   const ref = (collection, id) => ({
     id,
     path: `${collection}/${id}`,
+    collection: (name) => query(`${collection}/${id}/${name}`),
+    create: async function (value) {
+      if (records.has(this.path)) throw new Error("exists");
+      records.set(this.path, value);
+    },
+    set: async function (value, options) {
+      records.set(
+        this.path,
+        options?.merge ? { ...records.get(this.path), ...value } : value,
+      );
+    },
     get: async function () {
       return snap(this);
     },
@@ -64,10 +102,11 @@ function database(initial) {
           .filter(
             ([k, v]) =>
               k.startsWith(`${collection}/`) &&
+              k.split("/").length === collection.split("/").length + 1 &&
               filters.every(([field, value]) => v[field] === value),
           )
           .slice(0, count)
-          .map(([key]) => snap(ref(collection, key.split("/")[1])));
+          .map(([key]) => snap(ref(collection, key.split("/").at(-1))));
         return { docs, empty: docs.length === 0 };
       },
     };
@@ -593,6 +632,7 @@ test("public payment settings expose visibility without returning Squad keys", a
   const load = loader({
     "@/services/settings.service": {
       getAppSettings: async () => ({
+        storeInformation: { name: "ShopBeta" },
         payments: {
           squadEnabled: true,
           paystackEnabled: true,
@@ -636,11 +676,14 @@ test("admin secret saves write only the private document and retain blank keys",
   const writes = [];
   const load = loader({
     "firebase/firestore": {
-      doc: (_, collection, id) => `${collection}/${id}`,
+      doc: (_, ...parts) => parts.join("/"),
       serverTimestamp: () => "server-time",
       setDoc: async (...args) => writes.push(args),
     },
     "@/firebase/firestore": { getDb: () => ({}) },
+    "@/services/settings.service": {
+      getAppSettings: async () => ({ storeInformation: { name: "ShopBeta" } }),
+    },
   });
   const save = load("@/services/squad-settings.service").saveSquadSecrets;
   await save({ sandboxSecretKey: " ", liveSecretKey: "" });

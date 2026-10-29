@@ -1,3 +1,4 @@
+const { routeStoreWebhook } = require("./store-routing");
 /**
  * Bachs HTTPS webhook (Firebase Cloud Function).
  * Mirrors src/app/api/payments/bachs handling:
@@ -60,7 +61,12 @@ async function getBachsSecrets() {
  * X-Bachs-Signature-V2: "t={ts},v1={sig}" — accept if ANY v1 matches (rotation).
  * Rejects deliveries older than 300s (replay protection).
  */
-function verifyBachsSignature(rawBody, headers, secrets, toleranceSeconds = 300) {
+function verifyBachsSignature(
+  rawBody,
+  headers,
+  secrets,
+  toleranceSeconds = 300,
+) {
   const candidates = [
     secrets.sandboxWebhookSecret,
     secrets.liveWebhookSecret,
@@ -82,7 +88,8 @@ function verifyBachsSignature(rawBody, headers, secrets, toleranceSeconds = 300)
   }
   const v1 = headers["x-bachs-signature"];
   if (v1) signatures.push(String(v1).trim());
-  if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length) return false;
+  if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length)
+    return false;
 
   const sentAt = Number(timestamp);
   if (Math.abs(Math.floor(Date.now() / 1000) - sentAt) > toleranceSeconds) {
@@ -138,6 +145,14 @@ exports.bachsWebhook = onRequest(
     memory: "256MiB",
   },
   async (req, res) => {
+    try {
+      if (await routeStoreWebhook(req, res, "bachs")) return;
+    } catch {
+      res
+        .status(503)
+        .json({ ok: false, reason: "Store webhook routing unavailable." });
+      return;
+    }
     if (req.method !== "POST") {
       res.status(405).json({ ok: false, reason: "Method not allowed." });
       return;
@@ -195,22 +210,31 @@ exports.bachsWebhook = onRequest(
         .get();
       const paymentDoc = paymentSnap.empty ? null : paymentSnap.docs[0];
       if (!paymentDoc) {
-        res.status(200).json({ ok: true, ignored: true, reason: "payment_not_found" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "payment_not_found" });
         return;
       }
       const payment = paymentDoc.data();
       const orderId = payment.orderId;
       const sandbox = payment.metadata?.sandbox !== false;
 
-      const orderSnap = await db.collection(COLLECTIONS.orders).doc(orderId).get();
+      const orderSnap = await db
+        .collection(COLLECTIONS.orders)
+        .doc(orderId)
+        .get();
       if (!orderSnap.exists) {
-        res.status(200).json({ ok: true, ignored: true, reason: "order_missing" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "order_missing" });
         return;
       }
       const order = { id: orderSnap.id, ...orderSnap.data() };
       const isCodFee = payment.purpose === COD_FEE_PURPOSE;
       if (order.paymentMethod !== "bachs" && !isCodFee) {
-        res.status(200).json({ ok: true, ignored: true, reason: "not_bachs_order" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "not_bachs_order" });
         return;
       }
       if (payment.checkoutId && payment.checkoutId !== checkoutId) {
@@ -218,7 +242,10 @@ exports.bachsWebhook = onRequest(
         return;
       }
 
-      if (event.type === "collection.failed" || event.type === "checkout.expired") {
+      if (
+        event.type === "collection.failed" ||
+        event.type === "checkout.expired"
+      ) {
         const result = await markPaymentFailed({
           orderId,
           reference,
@@ -249,7 +276,9 @@ exports.bachsWebhook = onRequest(
       }
 
       if (session.status !== "completed") {
-        res.status(200).json({ ok: true, ignored: true, reason: "not_completed" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "not_completed" });
         return;
       }
       if (session.reference && session.reference !== reference) {
@@ -278,10 +307,7 @@ exports.bachsWebhook = onRequest(
           return;
         }
       }
-      if (
-        data.currency &&
-        String(data.currency).toUpperCase() !== "NGN"
-      ) {
+      if (data.currency && String(data.currency).toUpperCase() !== "NGN") {
         res.status(400).json({ ok: false, reason: "Currency mismatch." });
         return;
       }

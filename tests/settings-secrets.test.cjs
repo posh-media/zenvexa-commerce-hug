@@ -1,222 +1,164 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { loader } = require("./payment-test-helpers.cjs");
-
-// In-memory Firestore mock for the client SDK surface used by
-// settings.service.ts.
-function harness(initial = {}) {
-  const records = new Map(
-    Object.entries(initial).map(([k, v]) => [k, structuredClone(v)]),
-  );
-  const audits = [];
-  const writes = [];
-
+const { loader, database } = require("./payment-test-helpers.cjs");
+function harness() {
+  process.env.NEXT_PUBLIC_STORE_ID = "zenvexa";
+  process.env.STORE_ID = "zenvexa";
+  const { db, records } = database({
+    "settings/app": { storeInformation: { name: "ShopBeta" } },
+    "settings/Zenvexa": {
+      storeId: "zenvexa",
+      storeInformation: { name: "Zenvexa", tagline: "Original" },
+      payments: { paystackEnabled: true },
+      notifications: { orderEmailEnabled: true },
+    },
+    "privatePaymentSettings/zenvexa/providers/paystack": {
+      secretKey: "existing-key",
+    },
+  });
+  const writes = [],
+    audits = [];
   const firestore = {
     doc: (_db, ...parts) => ({ path: parts.join("/") }),
-    collection: (_db, name) => ({ path: name }),
     getDoc: async (ref) => ({
       exists: () => records.has(ref.path),
       data: () => records.get(ref.path),
     }),
-    setDoc: async (ref, value, options) => {
-      writes.push({ path: ref.path, value, options });
-      const existing = records.get(ref.path) ?? {};
-      const merged = { ...existing };
-      for (const [key, v] of Object.entries(value)) {
-        if (v === "__DELETE_FIELD__") {
-          delete merged[key];
-        } else if (
-          options?.merge &&
-          v &&
-          typeof v === "object" &&
-          !Array.isArray(v) &&
-          !(v instanceof Date)
-        ) {
-          merged[key] = { ...(merged[key] ?? {}), ...v };
-        } else {
-          merged[key] = v;
+    setDoc: async (ref, data) => {
+      writes.push(ref.path);
+      const merge = (a, b) => {
+        const out = { ...a };
+        for (const [k, v] of Object.entries(b)) {
+          if (v === "__DELETE__") delete out[k];
+          else if (v && typeof v === "object" && !Array.isArray(v))
+            out[k] = merge(out[k], v);
+          else out[k] = v;
         }
-      }
-      records.set(ref.path, merged);
+        return out;
+      };
+      records.set(ref.path, merge(records.get(ref.path), data));
     },
-    deleteField: () => "__DELETE_FIELD__",
-    serverTimestamp: () => "__TS__",
-    addDoc: async (_col, value) => {
-      records.set(`auto/${records.size}`, value);
-      return { id: `auto-${records.size}` };
-    },
+    deleteField: () => "__DELETE__",
+    serverTimestamp: () => "timestamp",
   };
-
   const load = loader({
     "firebase/firestore": firestore,
     "@/firebase/firestore": { getDb: () => ({}) },
     "@/firebase/collections": {
-      settingsDoc: () => ({ path: "settings/app" }),
+      settingsDoc: () => ({ path: "settings/Zenvexa" }),
+    },
+    "@/lib/server/firebase-admin": {
+      getAdminDb: () => db,
+      isFirebaseAdminConfigured: () => true,
     },
     "@/services/audit.service": {
-      writeAuditLog: async (input) => audits.push(input),
+      writeAuditLog: async (data) => audits.push(data),
     },
   });
-  return { load, records, audits, writes };
+  return { records, load, writes, audits };
 }
-
-const EXISTING_SETTINGS = {
-  "settings/app": {
-    storeInformation: { name: "ShopBeta", tagline: "Deals" },
-    payments: {
-      paystackEnabled: true,
-      paystackPublicKeyHint: "pk_test_hint",
-    },
-    paymentSecrets: {
-      paystackSecretKey: "sk_live_paystack",
-      korapaySecretKey: "sk_live_korapay",
-      flutterwaveSecretKey: "sk_live_flutterwave",
-    },
-    notifications: { orderEmailEnabled: true },
-  },
-};
-
-const actor = { id: "admin-1", email: "admin@shopbeta.com" };
-
-test("blank secret fields never overwrite existing keys", async () => {
-  const { load, records } = harness(structuredClone(EXISTING_SETTINGS));
-  const { updateAppSettings } = load("@/services/settings.service");
-
-  await updateAppSettings(
+const actor = { id: "admin" };
+test("partial store saves preserve name and nested values without touching ShopBeta", async () => {
+  const f = harness();
+  const settings = f.load("@/services/settings.service");
+  await settings.updateAppSettings(
     {
-      storeInformation: { name: "Renamed Store" },
-      paymentSecrets: {
-        paystackSecretKey: "",
-        korapaySecretKey: "   ",
-        flutterwaveSecretKey: undefined,
+      storeInformation: { tagline: "Changed" },
+      payments: { korapayEnabled: true },
+    },
+    actor,
+  );
+  const result = f.records.get("settings/Zenvexa");
+  assert.equal(result.storeInformation.name, "Zenvexa");
+  assert.equal(result.storeInformation.tagline, "Changed");
+  assert.equal(result.payments.paystackEnabled, true);
+  assert.equal(result.payments.korapayEnabled, true);
+  assert.equal(result.storeId, "zenvexa");
+  assert.deepEqual(f.records.get("settings/app"), {
+    storeInformation: { name: "ShopBeta" },
+  });
+});
+test("blank/unknown store identities reject the save before any write", async () => {
+  const f = harness();
+  const service = f.load("@/services/settings.service");
+  await assert.rejects(
+    service.updateAppSettings({ storeInformation: { name: " \t " } }, actor),
+    /Admin has not configured/,
+  );
+  await assert.rejects(
+    service.updateAppSettings({ storeId: "shopbeta" }, actor),
+    /mismatch/,
+  );
+  assert.equal(f.writes.length, 0);
+});
+test("blank keys preserve existing private keys and new values never reach public settings or audit", async () => {
+  const f = harness();
+  const service = f.load("@/services/settings.service");
+  await service.updateAppSettings(
+    { paymentSecrets: { paystackSecretKey: "  " } },
+    actor,
+  );
+  assert.equal(
+    f.records.get("privatePaymentSettings/zenvexa/providers/paystack")
+      .secretKey,
+    "existing-key",
+  );
+  await service.updateAppSettings(
+    { paymentSecrets: { paystackSecretKey: " new-private-value " } },
+    actor,
+  );
+  assert.equal(
+    f.records.get("privatePaymentSettings/zenvexa/providers/paystack")
+      .secretKey,
+    "new-private-value",
+  );
+  assert.equal(f.records.get("settings/Zenvexa").paymentSecrets, undefined);
+  assert.equal(JSON.stringify(f.audits).includes("new-private-value"), false);
+});
+test("webhook URLs are private and public readers also redact inherited sensitive fields", async () => {
+  const f = harness();
+  const service = f.load("@/services/settings.service");
+  await service.updateAppSettings(
+    {
+      notifications: {
+        makeWebhookUrl: "https://private.invalid/token",
+        transactionalEmailWebhookUrl: "https://private.invalid/email",
       },
     },
     actor,
   );
-
-  const doc = records.get("settings/app");
-  assert.equal(doc.paymentSecrets.paystackSecretKey, "sk_live_paystack");
-  assert.equal(doc.paymentSecrets.korapaySecretKey, "sk_live_korapay");
-  assert.equal(doc.paymentSecrets.flutterwaveSecretKey, "sk_live_flutterwave");
-  assert.equal(doc.storeInformation.name, "Renamed Store");
-  assert.equal(doc.storeInformation.tagline, "Deals"); // merged, not dropped
-});
-
-test("a new non-empty key replaces only that provider's key", async () => {
-  const { load, records } = harness(structuredClone(EXISTING_SETTINGS));
-  const { updateAppSettings } = load("@/services/settings.service");
-
-  await updateAppSettings(
-    { paymentSecrets: { paystackSecretKey: "  sk_new  " } },
-    actor,
+  assert.equal(
+    f.records.get("privateStoreSettings/zenvexa").makeWebhookUrl,
+    "https://private.invalid/token",
   );
-
-  const doc = records.get("settings/app");
-  assert.equal(doc.paymentSecrets.paystackSecretKey, "sk_new");
-  assert.equal(doc.paymentSecrets.korapaySecretKey, "sk_live_korapay");
-  assert.equal(doc.paymentSecrets.flutterwaveSecretKey, "sk_live_flutterwave");
-});
-
-test("nested payment settings merge instead of wholesale replace", async () => {
-  const { load, records } = harness(structuredClone(EXISTING_SETTINGS));
-  const { updateAppSettings } = load("@/services/settings.service");
-
-  await updateAppSettings(
-    { payments: { codEnabled: false } },
-    actor,
+  assert.equal(
+    f.records.get("settings/Zenvexa").notifications.makeWebhookUrl,
+    undefined,
   );
-
-  const doc = records.get("settings/app");
-  assert.equal(doc.payments.codEnabled, false);
-  assert.equal(doc.payments.paystackEnabled, true); // preserved
-  assert.equal(doc.payments.paystackPublicKeyHint, "pk_test_hint"); // preserved
-});
-
-test("intentional false values are saved while omitted fields persist", async () => {
-  const { load, records } = harness(structuredClone(EXISTING_SETTINGS));
-  const { updateAppSettings } = load("@/services/settings.service");
-
-  await updateAppSettings(
-    { notifications: { orderEmailEnabled: false } },
-    actor,
+  assert.equal(JSON.stringify(f.audits).includes("private.invalid"), false);
+  f.records.get("settings/Zenvexa").paymentSecrets = {
+    paystackSecretKey: "legacy-secret",
+  };
+  f.records.get("settings/Zenvexa").notifications.makeWebhookUrl =
+    "inherited-url";
+  assert.equal(
+    JSON.stringify(await service.getAppSettings()).includes("legacy-secret"),
+    false,
   );
-
-  const doc = records.get("settings/app");
-  assert.equal(doc.notifications.orderEmailEnabled, false);
-});
-
-test("audit log never receives secret values", async () => {
-  const { load, audits } = harness(structuredClone(EXISTING_SETTINGS));
-  const { updateAppSettings } = load("@/services/settings.service");
-
-  await updateAppSettings(
-    { paymentSecrets: { paystackSecretKey: "sk_super_secret_new" } },
-    actor,
+  assert.equal(
+    JSON.stringify(await service.getAppSettings()).includes("inherited-url"),
+    false,
   );
-
-  assert.equal(audits.length, 1);
-  const serialized = JSON.stringify(audits[0]);
-  assert.equal(serialized.includes("sk_live_paystack"), false);
-  assert.equal(serialized.includes("sk_super_secret_new"), false);
-  assert.equal(serialized.includes("[redacted]"), true);
 });
-
-test("saveProviderSecrets writes only non-blank keys to privatePaymentSettings", async () => {
-  const { load, records } = harness({
-    "privatePaymentSettings/paystack": {
-      secretKey: "sk_live_paystack",
-    },
+test("Zenvexa does not use legacy ShopBeta provider secrets when its own key is missing", async () => {
+  const f = harness();
+  f.records.delete("privatePaymentSettings/zenvexa/providers/paystack");
+  f.records.set("privatePaymentSettings/paystack", {
+    secretKey: "wrong-store-key",
   });
-  const { saveProviderSecrets } = load("@/services/settings.service");
-
-  await saveProviderSecrets({
-    paystackSecretKey: "", // blank — must not overwrite
-    korapaySecretKey: "  sk_new_korapay  ",
-    flutterwaveSecretKey: "   ",
-  });
-
+  delete process.env.PAYSTACK_SECRET_KEY;
   assert.equal(
-    records.get("privatePaymentSettings/paystack").secretKey,
-    "sk_live_paystack",
+    await f.load("@/services/settings.service").getPaymentSecretKey("paystack"),
+    undefined,
   );
-  assert.equal(
-    records.get("privatePaymentSettings/korapay").secretKey,
-    "sk_new_korapay",
-  );
-  assert.equal(records.has("privatePaymentSettings/flutterwave"), false);
-});
-
-test("legacy keys migrate to privatePaymentSettings and are removed from settings", async () => {
-  const { load, records } = harness(structuredClone(EXISTING_SETTINGS));
-  const { migrateLegacyPaymentSecrets } = load("@/services/settings.service");
-
-  await migrateLegacyPaymentSecrets();
-
-  assert.equal(
-    records.get("privatePaymentSettings/paystack").secretKey,
-    "sk_live_paystack",
-  );
-  assert.equal(
-    records.get("privatePaymentSettings/korapay").secretKey,
-    "sk_live_korapay",
-  );
-  assert.equal(
-    records.get("privatePaymentSettings/flutterwave").secretKey,
-    "sk_live_flutterwave",
-  );
-  assert.equal("paymentSecrets" in records.get("settings/app"), false);
-
-  // Second call is a no-op.
-  await migrateLegacyPaymentSecrets();
-  assert.equal("paymentSecrets" in records.get("settings/app"), false);
-});
-
-test("migration no-ops when there are no legacy secrets", async () => {
-  const { load, records, writes } = harness({
-    "settings/app": { storeInformation: { name: "ShopBeta" } },
-  });
-  const { migrateLegacyPaymentSecrets } = load("@/services/settings.service");
-
-  await migrateLegacyPaymentSecrets();
-  assert.equal(writes.length, 0);
 });

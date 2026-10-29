@@ -1,3 +1,5 @@
+process.env.NEXT_PUBLIC_STORE_ID = "shopbeta";
+process.env.STORE_ID = "shopbeta";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { createHmac } = require("node:crypto");
@@ -20,18 +22,11 @@ test("bachs v2 signature accepts a valid delivery and rejects forgeries", () => 
   const ts = String(Math.floor(Date.now() / 1000));
   const v1 = sign(SECRET, ts, body);
   assert.equal(
-    verify(
-      body,
-      { signatureV2: `t=${ts},v1=${v1}` },
-      [SECRET],
-    ),
+    verify(body, { signatureV2: `t=${ts},v1=${v1}` }, [SECRET]),
     true,
   );
   // Legacy v1 header
-  assert.equal(
-    verify(body, { signature: v1, timestamp: ts }, [SECRET]),
-    true,
-  );
+  assert.equal(verify(body, { signature: v1, timestamp: ts }, [SECRET]), true);
   // Wrong secret
   assert.equal(
     verify(body, { signatureV2: `t=${ts},v1=${v1}` }, ["wrong-secret"]),
@@ -45,7 +40,9 @@ test("bachs v2 signature accepts a valid delivery and rejects forgeries", () => 
   // Stale timestamp (replay)
   const old = String(Math.floor(Date.now() / 1000) - 600);
   assert.equal(
-    verify(body, { signature: sign(SECRET, old, body), timestamp: old }, [SECRET]),
+    verify(body, { signature: sign(SECRET, old, body), timestamp: old }, [
+      SECRET,
+    ]),
     false,
   );
   // Missing pieces
@@ -139,6 +136,7 @@ function fixture({ purpose } = {}) {
     load,
     reference: "BA" + "a".repeat(32),
     session: (status) => ({
+      pricing: { amount: String(purpose ? 25 : 100), currency: "NGN" },
       checkout_id: "chk_test123",
       checkout_url: "https://checkout.bachs.io/c/abc",
       status,
@@ -158,8 +156,9 @@ function sessionResponse(session) {
 
 test("bachs verify marks the order paid once the session is completed", async () => {
   const f = fixture();
-  const verify = f.load("@/lib/server/bachs-payment-service")
-    .verifyBachsForReference;
+  const verify = f.load(
+    "@/lib/server/bachs-payment-service",
+  ).verifyBachsForReference;
   await withFetch(sessionResponse(f.session("completed")), async () => {
     const result = await verify(f.reference, "evt_1");
     assert.equal(result.ok, true);
@@ -174,8 +173,9 @@ test("bachs verify marks the order paid once the session is completed", async ()
 
 test("bachs verify is idempotent across retries and duplicate events", async () => {
   const f = fixture();
-  const verify = f.load("@/lib/server/bachs-payment-service")
-    .verifyBachsForReference;
+  const verify = f.load(
+    "@/lib/server/bachs-payment-service",
+  ).verifyBachsForReference;
   await withFetch(sessionResponse(f.session("completed")), async () => {
     assert.equal((await verify(f.reference, "evt_1")).ok, true);
     const again = await verify(f.reference, "evt_1");
@@ -188,8 +188,9 @@ test("bachs verify is idempotent across retries and duplicate events", async () 
 
 test("bachs open/expired sessions never mark the order paid", async () => {
   const f = fixture();
-  const verify = f.load("@/lib/server/bachs-payment-service")
-    .verifyBachsForReference;
+  const verify = f.load(
+    "@/lib/server/bachs-payment-service",
+  ).verifyBachsForReference;
   await withFetch(sessionResponse(f.session("open")), async () => {
     const result = await verify(f.reference);
     assert.equal(result.ok, false);
@@ -207,10 +208,14 @@ test("bachs open/expired sessions never mark the order paid", async () => {
 
 test("bachs verify rejects a session reference mismatch", async () => {
   const f = fixture();
-  const verify = f.load("@/lib/server/bachs-payment-service")
-    .verifyBachsForReference;
+  const verify = f.load(
+    "@/lib/server/bachs-payment-service",
+  ).verifyBachsForReference;
   await withFetch(
-    sessionResponse({ ...f.session("completed"), reference: "BA" + "b".repeat(32) }),
+    sessionResponse({
+      ...f.session("completed"),
+      reference: "BA" + "b".repeat(32),
+    }),
     async () => {
       const result = await verify(f.reference);
       assert.equal(result.ok, false);
@@ -221,8 +226,9 @@ test("bachs verify rejects a session reference mismatch", async () => {
 
 test("bachs COD commitment fee keeps paymentStatus pending", async () => {
   const f = fixture({ purpose: "cod_commitment_fee" });
-  const verify = f.load("@/lib/server/bachs-payment-service")
-    .verifyBachsForReference;
+  const verify = f.load(
+    "@/lib/server/bachs-payment-service",
+  ).verifyBachsForReference;
   await withFetch(sessionResponse(f.session("completed")), async () => {
     const result = await verify(f.reference, "evt_2");
     assert.equal(result.ok, true);
@@ -241,9 +247,30 @@ test("bachs verify rejects payments from another gateway", async () => {
     ...f.records.get("payments/pay-1"),
     gateway: "squad",
   });
-  const verify = f.load("@/lib/server/bachs-payment-service")
-    .verifyBachsForReference;
+  const verify = f.load(
+    "@/lib/server/bachs-payment-service",
+  ).verifyBachsForReference;
   const result = await verify(f.reference);
   assert.equal(result.ok, false);
   assert.equal(result.reason, "Bachs payment not found.");
+});
+
+test("bachs authoritative amount and currency mismatches cannot consume stock", async () => {
+  for (const pricing of [
+    { amount: "1.00", currency: "NGN" },
+    { amount: "100.00", currency: "USD" },
+  ]) {
+    const f = fixture();
+    await withFetch(
+      sessionResponse({ ...f.session("completed"), pricing }),
+      async () => {
+        const result = await f
+          .load("@/lib/server/bachs-payment-service")
+          .verifyBachsForReference(f.reference);
+        assert.equal(result.ok, false);
+      },
+    );
+    assert.equal(f.records.get("products/product-1").stock, 8);
+    assert.equal(f.records.get("orders/order-1").paymentStatus, "processing");
+  }
 });

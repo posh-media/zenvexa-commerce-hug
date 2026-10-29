@@ -1,6 +1,6 @@
-import type { FirestoreDate } from "@/types/firestore";
-import type { Coupon } from "@/types/coupon";
 import { getCouponByCode } from "@/services/coupons.service";
+import type { Coupon } from "@/types/coupon";
+import type { FirestoreDate } from "@/types/firestore";
 
 export type CouponValidationResult =
   | {
@@ -113,27 +113,5 @@ export async function applyCouponCode(
     // Fall through to local stub when Firestore rules block reads.
   }
 
-  // Demo fallback for environments without seeded coupons.
-  if (normalized === "BETA10") {
-    const stub: Coupon = {
-      id: "beta10",
-      code: "BETA10",
-      description: "10% off up to ₦5,000",
-      discountType: "percentage",
-      discountValue: 10,
-      minimumPurchase: 0,
-      active: true,
-    };
-    const result = validateCouponDocument(stub, subtotal);
-    if (result.ok) {
-      return {
-        ...result,
-        discount: Math.min(5_000, result.discount),
-        message: "BETA10 applied (10% off, max ₦5,000)",
-      };
-    }
-    return result;
-  }
-
-  return { ok: false, reason: "Coupon code not found." };
+  return { ok: false, reason: "This coupon is unavailable for this store." };
 }

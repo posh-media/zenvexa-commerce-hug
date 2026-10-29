@@ -1,25 +1,28 @@
-import { getAdminDb } from "@/lib/server/firebase-admin";
+import {
+  deploymentEnv,
+  providerSecrets,
+  storeSettingsRef,
+} from "@/lib/server/store-context";
 
 export async function getMonnifyConfiguration(sandboxOverride?: boolean) {
-  const db = getAdminDb();
   const [settings, secrets] = await Promise.all([
-    db.collection("settings").doc("app").get(),
-    db.collection("privatePaymentSettings").doc("monnify").get(),
+    storeSettingsRef().get(),
+    providerSecrets("monnify").then((data) => ({ data: () => data })),
   ]);
   const payments = settings.data()?.payments;
   const sandbox =
     sandboxOverride ??
     payments?.monnifySandbox ??
-    process.env.MONNIFY_SANDBOX !== "false";
+    deploymentEnv("MONNIFY_SANDBOX") !== "false";
   const values = secrets.data();
   const prefix = sandbox ? "sandbox" : "live";
   const envPrefix = sandbox ? "MONNIFY_TEST_" : "MONNIFY_LIVE_";
   const value = (field: string, env: string): string =>
-    (values?.[prefix + field] || process.env[envPrefix + env] || "").trim();
+    (values?.[prefix + field] || deploymentEnv(envPrefix + env) || "").trim();
   return {
     enabled:
       payments?.monnifyEnabled ??
-      process.env.NEXT_PUBLIC_MONNIFY_ENABLED === "true",
+      deploymentEnv("NEXT_PUBLIC_MONNIFY_ENABLED") === "true",
     sandbox: Boolean(sandbox),
     apiKey: value("ApiKey", "API_KEY"),
     secretKey: value("SecretKey", "SECRET_KEY"),

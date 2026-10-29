@@ -1,18 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
 import { AdminPageHeader } from "@/components/admin/admin-ui";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
 import { RequireAdmin } from "@/components/auth/require-admin";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Label } from "@/components/ui/field";
-import {
-  getAppSettings,
-  migrateLegacyPaymentSecrets,
-  updateAppSettings,
-} from "@/services/settings.service";
-import { useUserStore } from "@/stores/user.store";
+import { getAppSettings, updateAppSettings } from "@/services/settings.service";
 import { toastError, toastSuccess } from "@/stores/toast.store";
+import { useUserStore } from "@/stores/user.store";
+import { FormEvent, useEffect, useState } from "react";
 
 export default function AdminSettingsPage() {
   const authUser = useUserStore((s) => s.authUser);
@@ -40,12 +36,6 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // Copy any legacy paymentSecrets into the write-only collection and
-    // remove them from the publicly-readable settings document.
-    void migrateLegacyPaymentSecrets().catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
     void getAppSettings()
       .then((settings) => {
         if (!settings) return;
@@ -61,7 +51,8 @@ export default function AdminSettingsPage() {
           instagram: settings.socialLinks?.instagram ?? f.instagram,
           twitter: settings.socialLinks?.twitter ?? f.twitter,
           taxRate: String(settings.taxRate ?? 0.075),
-          countries: (settings.supportedCountries ?? []).join(",") || f.countries,
+          countries:
+            (settings.supportedCountries ?? []).join(",") || f.countries,
           orderEmailEnabled: settings.notifications?.orderEmailEnabled ?? true,
           promoPushEnabled: settings.notifications?.promoPushEnabled ?? true,
           brandColor: settings.theme?.brandColor ?? f.brandColor,
@@ -134,6 +125,7 @@ export default function AdminSettingsPage() {
             <Label htmlFor="name">Store name</Label>
             <Input
               id="name"
+              required
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
@@ -163,7 +155,9 @@ export default function AdminSettingsPage() {
             <Input
               id="email"
               value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, email: e.target.value }))
+              }
             />
           </div>
           <div>
@@ -171,7 +165,9 @@ export default function AdminSettingsPage() {
             <Input
               id="phone"
               value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, phone: e.target.value }))
+              }
             />
           </div>
           <div>
@@ -205,7 +201,9 @@ export default function AdminSettingsPage() {
           <Input
             placeholder="Twitter / X URL"
             value={form.twitter}
-            onChange={(e) => setForm((f) => ({ ...f, twitter: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, twitter: e.target.value }))
+            }
           />
         </section>
 
@@ -222,7 +220,9 @@ export default function AdminSettingsPage() {
             />
           </div>
           <div>
-            <Label htmlFor="countries">Supported countries (comma-separated)</Label>
+            <Label htmlFor="countries">
+              Supported countries (comma-separated)
+            </Label>
             <Input
               id="countries"
               value={form.countries}
@@ -234,7 +234,9 @@ export default function AdminSettingsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-ink">Payments &amp; integrations</h2>
+          <h2 className="text-sm font-semibold text-ink">
+            Payments &amp; integrations
+          </h2>
           <p className="text-[12px] text-muted">
             Payment providers, API keys and webhook URLs have moved to{" "}
             <a href="/admin/integrations" className="text-primary underline">

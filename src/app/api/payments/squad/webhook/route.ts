@@ -1,12 +1,13 @@
-import { NextResponse } from "next/server";
-import { getSquadConfiguration } from "@/lib/server/squad-settings";
 import { verifySquadWebhookSignature } from "@/lib/server/squad";
 import { verifySquadForReference } from "@/lib/server/squad-payment-service";
+import { getSquadConfiguration } from "@/lib/server/squad-settings";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const raw = await request.text();
   const signature = request.headers.get("x-squad-encrypted-body");
   try {
@@ -60,4 +61,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    webhook: "squad",
+  });
 }

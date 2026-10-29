@@ -1,3 +1,4 @@
+const { routeStoreWebhook, storeFrom } = require("./store-routing");
 /**
  * Paystack HTTPS webhook (Firebase Cloud Function).
  * Mirrors src/app/api/payments/paystack/webhook/route.ts behaviour:
@@ -65,7 +66,9 @@ function verifySignature(rawBody, signature) {
   const bodyBuffer = Buffer.isBuffer(rawBody)
     ? rawBody
     : Buffer.from(String(rawBody), "utf8");
-  const hash = createHmac("sha512", secret.trim()).update(bodyBuffer).digest("hex");
+  const hash = createHmac("sha512", secret.trim())
+    .update(bodyBuffer)
+    .digest("hex");
   try {
     const expected = Buffer.from(hash, "utf8");
     const received = Buffer.from(signature, "utf8");
@@ -96,7 +99,9 @@ async function verifyWithPaystack(reference) {
   );
   const body = await response.json();
   if (!response.ok || !body.status) {
-    throw new Error(body.message || `Paystack verify failed (${response.status})`);
+    throw new Error(
+      body.message || `Paystack verify failed (${response.status})`,
+    );
   }
   return body.data;
 }
@@ -135,10 +140,14 @@ async function finalizeSuccessfulPayment({
   return db.runTransaction(async (tx) => {
     const orderRef = db.collection(COLLECTIONS.orders).doc(orderId);
     const orderSnap = await tx.get(orderRef);
+    if (orderSnap.exists && storeFrom(orderSnap.data()) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (!orderSnap.exists) {
       return { ok: false, reason: "Order not found." };
     }
     const order = { id: orderSnap.id, ...orderSnap.data() };
+    if (storeFrom(order) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
 
     if (order.paymentStatus === "paid" && order.inventoryReserved) {
       return { ok: true, order, alreadyProcessed: true };
@@ -146,7 +155,10 @@ async function finalizeSuccessfulPayment({
 
     const expectedTotal = Number(order.total ?? order.totals?.total ?? 0);
     if (!amountsMatch(expectedTotal, verified.amount)) {
-      return { ok: false, reason: "Paid amount does not match the order total." };
+      return {
+        ok: false,
+        reason: "Paid amount does not match the order total.",
+      };
     }
     if ((verified.currency || "NGN").toUpperCase() !== "NGN") {
       return { ok: false, reason: "Unsupported payment currency." };
@@ -160,7 +172,9 @@ async function finalizeSuccessfulPayment({
     const productLocks = [];
     if (!order.inventoryReserved) {
       for (const line of lines) {
-        const productRef = db.collection(COLLECTIONS.products).doc(line.productId);
+        const productRef = db
+          .collection(COLLECTIONS.products)
+          .doc(line.productId);
         const productSnap = await tx.get(productRef);
         if (!productSnap.exists) {
           return {
@@ -223,16 +237,19 @@ async function finalizeSuccessfulPayment({
       "order_confirmed",
     );
 
-    tx.update(orderRef, stripUndefined({
-      paymentStatus: "paid",
-      orderStatus: "paid",
-      status: "paid",
-      paymentReference: verified.reference,
-      paymentId: paymentRef.id,
-      inventoryReserved: true,
-      timeline,
-      updatedAt: FieldValue.serverTimestamp(),
-    }));
+    tx.update(
+      orderRef,
+      stripUndefined({
+        paymentStatus: "paid",
+        orderStatus: "paid",
+        status: "paid",
+        paymentReference: verified.reference,
+        paymentId: paymentRef.id,
+        inventoryReserved: true,
+        timeline,
+        updatedAt: FieldValue.serverTimestamp(),
+      }),
+    );
 
     const paymentPayload = {
       orderId: order.id,
@@ -288,10 +305,14 @@ async function finalizeCodCommitmentFee({
   return db.runTransaction(async (tx) => {
     const orderRef = db.collection(COLLECTIONS.orders).doc(orderId);
     const orderSnap = await tx.get(orderRef);
+    if (orderSnap.exists && storeFrom(orderSnap.data()) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (!orderSnap.exists) {
       return { ok: false, reason: "Order not found." };
     }
     const order = { id: orderSnap.id, ...orderSnap.data() };
+    if (storeFrom(order) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
 
     if (order.commitmentFeeStatus === "paid" && order.inventoryReserved) {
       return { ok: true, order, alreadyProcessed: true };
@@ -303,7 +324,9 @@ async function finalizeCodCommitmentFee({
 
     const expectedFee = Number(
       order.codCommitmentFee ??
-        computeCodCommitmentFee(Number(order.total ?? order.totals?.total ?? 0)),
+        computeCodCommitmentFee(
+          Number(order.total ?? order.totals?.total ?? 0),
+        ),
     );
     if (!amountsMatch(expectedFee, verified.amount)) {
       return {
@@ -323,7 +346,9 @@ async function finalizeCodCommitmentFee({
     const productLocks = [];
     if (!order.inventoryReserved) {
       for (const line of lines) {
-        const productRef = db.collection(COLLECTIONS.products).doc(line.productId);
+        const productRef = db
+          .collection(COLLECTIONS.products)
+          .doc(line.productId);
         const productSnap = await tx.get(productRef);
         if (!productSnap.exists) {
           return {
@@ -394,23 +419,26 @@ async function finalizeCodCommitmentFee({
       "Commitment fee verified — balance due on delivery.",
     );
 
-    tx.update(orderRef, stripUndefined({
-      commitmentFeeStatus: "paid",
-      codAmountPaid: amountNaira,
-      codBalance: balance,
-      commitmentFeePaidAt: verified.paid_at
-        ? new Date(verified.paid_at)
-        : FieldValue.serverTimestamp(),
-      paymentStatus: "pending",
-      orderStatus: "processing",
-      status: "processing",
-      paymentGateway: "paystack",
-      paymentReference: verified.reference,
-      paymentId: paymentRef.id,
-      inventoryReserved: true,
-      timeline,
-      updatedAt: FieldValue.serverTimestamp(),
-    }));
+    tx.update(
+      orderRef,
+      stripUndefined({
+        commitmentFeeStatus: "paid",
+        codAmountPaid: amountNaira,
+        codBalance: balance,
+        commitmentFeePaidAt: verified.paid_at
+          ? new Date(verified.paid_at)
+          : FieldValue.serverTimestamp(),
+        paymentStatus: "pending",
+        orderStatus: "processing",
+        status: "processing",
+        paymentGateway: "paystack",
+        paymentReference: verified.reference,
+        paymentId: paymentRef.id,
+        inventoryReserved: true,
+        timeline,
+        updatedAt: FieldValue.serverTimestamp(),
+      }),
+    );
 
     const paymentPayload = {
       orderId: order.id,
@@ -459,13 +487,24 @@ async function finalizeCodCommitmentFee({
   });
 }
 
-async function markPaymentFailed({ orderId, reference, status, reason, eventId, paymentDocId }) {
+async function markPaymentFailed({
+  orderId,
+  reference,
+  status,
+  reason,
+  eventId,
+  paymentDocId,
+}) {
   const db = getFirestore();
   return db.runTransaction(async (tx) => {
     const orderRef = db.collection(COLLECTIONS.orders).doc(orderId);
     const orderSnap = await tx.get(orderRef);
+    if (orderSnap.exists && storeFrom(orderSnap.data()) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (!orderSnap.exists) return { ok: false, reason: "Order not found." };
     const order = { id: orderSnap.id, ...orderSnap.data() };
+    if (storeFrom(order) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (order.paymentStatus === "paid") {
       return { ok: true, order, alreadyProcessed: true };
     }
@@ -497,7 +536,11 @@ async function markPaymentFailed({ orderId, reference, status, reason, eventId, 
       }
     }
 
-    return { ok: true, order: { ...order, paymentStatus: status, timeline }, alreadyProcessed: false };
+    return {
+      ok: true,
+      order: { ...order, paymentStatus: status, timeline },
+      alreadyProcessed: false,
+    };
   });
 }
 
@@ -505,6 +548,8 @@ function buildMakePayload(order, reference) {
   const lines = order.products || order.items || [];
   const address = order.shippingAddress || {};
   return {
+    storeId: "shopbeta",
+    storeName: order.storeName || "ShopBeta",
     customerName: order.customer?.name || "Customer",
     customerEmail: order.customer?.email || "",
     phoneNumber: order.customer?.phone || address.phone || "",
@@ -533,7 +578,8 @@ function buildMakePayload(order, reference) {
         productName: item.name || item.productId,
         quantity,
         price,
-        subtotal: item.lineTotal != null ? Number(item.lineTotal) : price * quantity,
+        subtotal:
+          item.lineTotal != null ? Number(item.lineTotal) : price * quantity,
       };
     }),
     subtotal: Number(order.subtotal ?? order.totals?.subtotal ?? 0),
@@ -573,8 +619,13 @@ async function notifyMake(order, reference) {
   try {
     const response = await fetch(makeUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(buildMakePayload({ ...order, ...latest, id: order.id }, reference)),
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(
+        buildMakePayload({ ...order, ...latest, id: order.id }, reference),
+      ),
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -628,6 +679,14 @@ exports.paystackWebhook = onRequest(
     memory: "256MiB",
   },
   async (req, res) => {
+    try {
+      if (await routeStoreWebhook(req, res, "paystack")) return;
+    } catch {
+      res
+        .status(503)
+        .json({ ok: false, reason: "Store webhook routing unavailable." });
+      return;
+    }
     if (req.method !== "POST") {
       res.status(405).json({ ok: false, reason: "Method not allowed." });
       return;
@@ -643,14 +702,20 @@ exports.paystackWebhook = onRequest(
     });
 
     if (!rawBodyBuffer) {
-      log("webhook.failure", "Missing rawBody — cannot verify Paystack signature", {});
+      log(
+        "webhook.failure",
+        "Missing rawBody — cannot verify Paystack signature",
+        {},
+      );
       res.status(500).json({ ok: false, reason: "Raw body unavailable." });
       return;
     }
 
     if (!getPaystackSecretKey()) {
       log("webhook.failure", "PAYSTACK_SECRET_KEY not configured", {});
-      res.status(500).json({ ok: false, reason: "Paystack is not configured." });
+      res
+        .status(500)
+        .json({ ok: false, reason: "Paystack is not configured." });
       return;
     }
 
@@ -699,14 +764,15 @@ exports.paystackWebhook = onRequest(
         .get();
       const paymentDoc = paymentSnap.empty ? null : paymentSnap.docs[0];
       const paymentDocId = paymentDoc?.id;
-      const orderId =
-        paymentDoc?.data()?.orderId || data.metadata?.orderId;
+      const orderId = paymentDoc?.data()?.orderId || data.metadata?.orderId;
 
       if (!orderId) {
         log("webhook.ignored", "Order not found for reference", {
           reference: data.reference,
         });
-        res.status(200).json({ ok: true, ignored: true, reason: "order_not_found" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "order_not_found" });
         return;
       }
 
@@ -732,22 +798,33 @@ exports.paystackWebhook = onRequest(
         });
 
         if (String(verified.status).toLowerCase() !== "success") {
-          res.status(200).json({ ok: true, ignored: true, reason: "not_successful" });
+          res
+            .status(200)
+            .json({ ok: true, ignored: true, reason: "not_successful" });
           return;
         }
 
-        const orderSnap = await db.collection(COLLECTIONS.orders).doc(orderId).get();
+        const orderSnap = await db
+          .collection(COLLECTIONS.orders)
+          .doc(orderId)
+          .get();
         if (!orderSnap.exists) {
-          res.status(200).json({ ok: true, ignored: true, reason: "order_missing" });
+          res
+            .status(200)
+            .json({ ok: true, ignored: true, reason: "order_missing" });
           return;
         }
         const order = { id: orderSnap.id, ...orderSnap.data() };
+        if (storeFrom(order) !== "shopbeta")
+          throw new Error("Legacy handler store mismatch.");
         const isCodFee =
           paymentDoc?.data()?.purpose === COD_FEE_PURPOSE ||
           data.metadata?.purpose === COD_FEE_PURPOSE;
         const orderTotal = Number(order.total ?? order.totals?.total ?? 0);
         const expectedTotal = isCodFee
-          ? Number(order.codCommitmentFee ?? computeCodCommitmentFee(orderTotal))
+          ? Number(
+              order.codCommitmentFee ?? computeCodCommitmentFee(orderTotal),
+            )
           : orderTotal;
         if (!amountsMatch(expectedTotal, verified.amount)) {
           log("webhook.failure", "Amount mismatch after verify", {
@@ -765,7 +842,9 @@ exports.paystackWebhook = onRequest(
         const orderEmail = order.customer?.email?.trim().toLowerCase();
         const paidEmail = verified.customer?.email?.trim().toLowerCase();
         if (orderEmail && paidEmail && orderEmail !== paidEmail) {
-          res.status(400).json({ ok: false, reason: "Customer email mismatch." });
+          res
+            .status(400)
+            .json({ ok: false, reason: "Customer email mismatch." });
           return;
         }
 
@@ -836,12 +915,18 @@ exports.paystackWebhook = onRequest(
         const orderRef = db.collection(COLLECTIONS.orders).doc(orderId);
         await db.runTransaction(async (tx) => {
           const orderSnap = await tx.get(orderRef);
+          if (orderSnap.exists && storeFrom(orderSnap.data()) !== "shopbeta")
+            throw new Error("Legacy handler store mismatch.");
           if (!orderSnap.exists) return;
           if (paymentDocId) {
-            const paymentRef = db.collection(COLLECTIONS.payments).doc(paymentDocId);
+            const paymentRef = db
+              .collection(COLLECTIONS.payments)
+              .doc(paymentDocId);
             const paymentSnap = await tx.get(paymentRef);
             if (paymentSnap.exists) {
-              const processed = Array.isArray(paymentSnap.data().processedEventIds)
+              const processed = Array.isArray(
+                paymentSnap.data().processedEventIds,
+              )
                 ? [...paymentSnap.data().processedEventIds]
                 : [];
               if (processed.includes(eventId)) return;

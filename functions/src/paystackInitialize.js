@@ -1,3 +1,4 @@
+const { legacyInitializeAllowed } = require("./store-routing");
 /**
  * Paystack Initialize — HTTPS Cloud Function.
  * Creates a Paystack transaction for a pending order and returns authorization_url.
@@ -32,7 +33,10 @@ function toKobo(naira) {
 }
 
 function paymentReferenceForOrder(order) {
-  const base = String(order.orderNumber || order.id).replace(/[^a-zA-Z0-9]/g, "");
+  const base = String(order.orderNumber || order.id).replace(
+    /[^a-zA-Z0-9]/g,
+    "",
+  );
   return `SB_${base}_${Date.now()}`.slice(0, 100);
 }
 
@@ -56,18 +60,23 @@ function appendTimeline(timeline, event) {
 
 async function callPaystackInitialize(payload) {
   const secret = getPaystackSecretKey();
-  const response = await fetch("https://api.paystack.co/transaction/initialize", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${secret}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+  const response = await fetch(
+    "https://api.paystack.co/transaction/initialize",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
+  );
   const body = await response.json();
   if (!response.ok || !body.status) {
-    throw new Error(body.message || `Paystack initialize failed (${response.status})`);
+    throw new Error(
+      body.message || `Paystack initialize failed (${response.status})`,
+    );
   }
   return body.data;
 }
@@ -80,6 +89,16 @@ exports.paystackInitialize = onRequest(
     cors: true,
   },
   async (req, res) => {
+    if (
+      req.method === "POST" &&
+      !(await legacyInitializeAllowed(req.body?.orderId))
+    ) {
+      res.status(403).json({
+        ok: false,
+        reason: "Use the originating store payment endpoint.",
+      });
+      return;
+    }
     if (req.method === "OPTIONS") {
       res.set("Access-Control-Allow-Origin", "*");
       res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -138,7 +157,9 @@ exports.paystackInitialize = onRequest(
       }
 
       if (order.paymentStatus === "paid") {
-        res.status(400).json({ ok: false, reason: "This order is already paid." });
+        res
+          .status(400)
+          .json({ ok: false, reason: "This order is already paid." });
         return;
       }
 

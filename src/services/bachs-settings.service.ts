@@ -1,5 +1,7 @@
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { getDb } from "@/firebase/firestore";
+import { providerDocumentSegments, requireStoreName } from "@/lib/store";
+import { getAppSettings } from "@/services/settings.service";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 /** Write-only from admin; secret values are never returned to the browser. */
 export async function saveBachsSecrets(input: {
@@ -19,8 +21,12 @@ export async function saveBachsSecrets(input: {
       .map(([k, v]) => [k, (v as string).trim()]),
   );
   if (!Object.keys(patch).length) return;
+  requireStoreName(await getAppSettings());
   await setDoc(
-    doc(getDb(), "privatePaymentSettings", "bachs"),
+    doc(
+      getDb(),
+      ...(providerDocumentSegments("bachs") as [string, ...string[]]),
+    ),
     {
       ...patch,
       updatedAt: serverTimestamp(),

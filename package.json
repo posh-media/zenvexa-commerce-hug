@@ -14,7 +14,13 @@
     "admin:set-role": "node scripts/set-user-role.mjs",
     "export:zenvexa": "node scripts/export-zenvexa-products.mjs",
     "migrate:zenvexa": "node scripts/migrate-zenvexa-products.mjs",
-    "test:monnify": "node tests/monnify-payments.test.cjs"
+    "test:monnify": "node tests/monnify-payments.test.cjs",
+    "test:stores": "node tests/store-scoping.test.cjs && node tests/settings-secrets.test.cjs",
+    "test:bachs": "node tests/bachs-payments.test.cjs",
+    "test:cod": "node tests/cod-payments.test.cjs",
+    "test:rules": "npx --yes --package firebase-tools firebase emulators:exec --only firestore --project demo-store-scope --config firebase.test.json \"node --test tests/store-rules.test.cjs\"",
+    "test:migration": "npx --yes --package firebase-tools firebase emulators:exec --only firestore --project demo-store-scope --config firebase.test.json \"node tests/store-migration-integration.cjs\"",
+    "migrate:stores": "node scripts/migrate-store-data.mjs"
   },
   "dependencies": {
     "clsx": "2.1.1",
@@ -28,6 +34,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

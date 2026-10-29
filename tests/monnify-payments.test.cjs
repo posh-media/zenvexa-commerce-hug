@@ -1,3 +1,5 @@
+process.env.NEXT_PUBLIC_STORE_ID = "shopbeta";
+process.env.STORE_ID = "shopbeta";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
@@ -585,11 +587,14 @@ test("admin saves only supplied credentials privately and blank fields retain ex
   const writes = [];
   const load = loader({
     "firebase/firestore": {
-      doc: (_, collection, id) => `${collection}/${id}`,
+      doc: (_, ...parts) => parts.join("/"),
       serverTimestamp: () => "server-time",
       setDoc: async (...args) => writes.push(args),
     },
     "@/firebase/firestore": { getDb: () => ({}) },
+    "@/services/settings.service": {
+      getAppSettings: async () => ({ storeInformation: { name: "ShopBeta" } }),
+    },
   });
   const save = load("@/services/monnify-settings.service").saveMonnifySecrets;
   await save({
@@ -618,6 +623,7 @@ test("public provider settings expose only visibility and retain existing provid
   const load = loader({
     "@/services/settings.service": {
       getAppSettings: async () => ({
+        storeInformation: { name: "ShopBeta" },
         payments: {
           monnifyEnabled: true,
           squadEnabled: true,

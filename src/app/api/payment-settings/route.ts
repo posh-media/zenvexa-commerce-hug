@@ -1,9 +1,8 @@
-import { NextResponse } from "next/server";
+import { isFirebaseAdminConfigured } from "@/lib/server/firebase-admin";
+import { providerSecrets } from "@/lib/server/store-context";
+import { requireStoreName } from "@/lib/store";
 import { getAppSettings } from "@/services/settings.service";
-import {
-  getAdminDb,
-  isFirebaseAdminConfigured,
-} from "@/lib/server/firebase-admin";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,11 +15,7 @@ async function secretConfigured(
 ) {
   if (isFirebaseAdminConfigured()) {
     try {
-      const snap = await getAdminDb()
-        .collection("privatePaymentSettings")
-        .doc(provider)
-        .get();
-      const data = snap.data();
+      const data = await providerSecrets(provider);
       if (provider === "bachs") {
         if (
           [data?.sandboxApiKey, data?.liveApiKey].some(
@@ -49,20 +44,14 @@ async function privateFieldsConfigured(
   let data: Record<string, unknown> | undefined;
   if (isFirebaseAdminConfigured()) {
     try {
-      data = (
-        await getAdminDb()
-          .collection("privatePaymentSettings")
-          .doc(provider)
-          .get()
-      ).data();
+      data = await providerSecrets(provider);
     } catch {
       data = undefined;
     }
   }
   for (const field of fields) {
     result[field] = Boolean(
-      (typeof data?.[field] === "string" && data[field]) ||
-        envFallbacks[field],
+      (typeof data?.[field] === "string" && data[field]) || envFallbacks[field],
     );
   }
   return result;
@@ -71,6 +60,7 @@ async function privateFieldsConfigured(
 export async function GET() {
   try {
     const settings = await getAppSettings();
+    requireStoreName(settings);
 
     const [
       paystackKeyConfigured,
@@ -80,79 +70,82 @@ export async function GET() {
       squadKeyConfigured,
       monnifyKeyConfigured,
       bachsFieldsConfigured,
-    ] =
-      await Promise.all([
-        secretConfigured(
-          "paystack",
-          settings?.paymentSecrets?.paystackSecretKey,
-          process.env.PAYSTACK_SECRET_KEY,
-        ),
-        secretConfigured(
-          "korapay",
-          settings?.paymentSecrets?.korapaySecretKey,
-          process.env.KORAPAY_SECRET_KEY,
-        ),
-        secretConfigured(
-          "flutterwave",
-          settings?.paymentSecrets?.flutterwaveSecretKey,
-          process.env.FLUTTERWAVE_SECRET_KEY,
-        ),
-        secretConfigured(
-          "bachs",
-          undefined,
-          process.env.BACHS_SANDBOX_API_KEY || process.env.BACHS_LIVE_API_KEY,
-        ),
-        privateFieldsConfigured(
-          "squad",
-          ["sandboxSecretKey", "liveSecretKey"],
-          {
-            sandboxSecretKey: process.env.SQUAD_TEST_SECRET_KEY,
-            liveSecretKey: process.env.SQUAD_LIVE_SECRET_KEY,
-          },
-        ),
-        privateFieldsConfigured(
-          "monnify",
-          [
-            "sandboxApiKey",
-            "sandboxSecretKey",
-            "sandboxContractCode",
-            "liveApiKey",
-            "liveSecretKey",
-            "liveContractCode",
-          ],
-        ),
-        privateFieldsConfigured(
-          "bachs",
-          [
-            "sandboxApiKey",
-            "liveApiKey",
-            "sandboxWebhookSecret",
-            "liveWebhookSecret",
-          ],
-          {
-            sandboxApiKey: process.env.BACHS_SANDBOX_API_KEY,
-            liveApiKey: process.env.BACHS_LIVE_API_KEY,
-            sandboxWebhookSecret: process.env.BACHS_SANDBOX_WEBHOOK_SECRET,
-            liveWebhookSecret: process.env.BACHS_LIVE_WEBHOOK_SECRET,
-          },
-        ),
-      ]);
+    ] = await Promise.all([
+      secretConfigured(
+        "paystack",
+        settings?.paymentSecrets?.paystackSecretKey,
+        process.env.PAYSTACK_SECRET_KEY,
+      ),
+      secretConfigured(
+        "korapay",
+        settings?.paymentSecrets?.korapaySecretKey,
+        process.env.KORAPAY_SECRET_KEY,
+      ),
+      secretConfigured(
+        "flutterwave",
+        settings?.paymentSecrets?.flutterwaveSecretKey,
+        process.env.FLUTTERWAVE_SECRET_KEY,
+      ),
+      secretConfigured(
+        "bachs",
+        undefined,
+        process.env.BACHS_SANDBOX_API_KEY || process.env.BACHS_LIVE_API_KEY,
+      ),
+      privateFieldsConfigured("squad", ["sandboxSecretKey", "liveSecretKey"], {
+        sandboxSecretKey: process.env.SQUAD_TEST_SECRET_KEY,
+        liveSecretKey: process.env.SQUAD_LIVE_SECRET_KEY,
+      }),
+      privateFieldsConfigured("monnify", [
+        "sandboxApiKey",
+        "sandboxSecretKey",
+        "sandboxContractCode",
+        "liveApiKey",
+        "liveSecretKey",
+        "liveContractCode",
+      ]),
+      privateFieldsConfigured(
+        "bachs",
+        [
+          "sandboxApiKey",
+          "liveApiKey",
+          "sandboxWebhookSecret",
+          "liveWebhookSecret",
+        ],
+        {
+          sandboxApiKey: process.env.BACHS_SANDBOX_API_KEY,
+          liveApiKey: process.env.BACHS_LIVE_API_KEY,
+          sandboxWebhookSecret: process.env.BACHS_SANDBOX_WEBHOOK_SECRET,
+          liveWebhookSecret: process.env.BACHS_LIVE_WEBHOOK_SECRET,
+        },
+      ),
+    ]);
 
     // Return only the public payment settings (no secrets)
     const publicSettings = {
-      monnify: settings?.payments?.monnifyEnabled ?? process.env.NEXT_PUBLIC_MONNIFY_ENABLED === "true",
-      squad: settings?.payments?.squadEnabled ?? process.env.NEXT_PUBLIC_SQUAD_ENABLED === "true",
-      paystack: settings?.payments?.paystackEnabled ?? 
-                process.env.NEXT_PUBLIC_PAYSTACK_ENABLED === 'true',
-      korapay: settings?.payments?.korapayEnabled ?? 
-               process.env.NEXT_PUBLIC_KORAPAY_ENABLED === 'true',
-      flutterwave: settings?.payments?.flutterwaveEnabled ?? 
-                   process.env.NEXT_PUBLIC_FLUTTERWAVE_ENABLED === 'true',
-      bachs: settings?.payments?.bachsEnabled ??
-             process.env.NEXT_PUBLIC_BACHS_ENABLED === 'true',
-      cod: settings?.payments?.codEnabled ?? 
-           process.env.NEXT_PUBLIC_COD_ENABLED !== 'false',
-      codAllowedStates: Array.isArray(settings?.payments?.paymentOnDeliveryAllowedStates)
+      monnify:
+        settings?.payments?.monnifyEnabled ??
+        process.env.NEXT_PUBLIC_MONNIFY_ENABLED === "true",
+      squad:
+        settings?.payments?.squadEnabled ??
+        process.env.NEXT_PUBLIC_SQUAD_ENABLED === "true",
+      paystack:
+        settings?.payments?.paystackEnabled ??
+        process.env.NEXT_PUBLIC_PAYSTACK_ENABLED === "true",
+      korapay:
+        settings?.payments?.korapayEnabled ??
+        process.env.NEXT_PUBLIC_KORAPAY_ENABLED === "true",
+      flutterwave:
+        settings?.payments?.flutterwaveEnabled ??
+        process.env.NEXT_PUBLIC_FLUTTERWAVE_ENABLED === "true",
+      bachs:
+        settings?.payments?.bachsEnabled ??
+        process.env.NEXT_PUBLIC_BACHS_ENABLED === "true",
+      cod:
+        settings?.payments?.codEnabled ??
+        process.env.NEXT_PUBLIC_COD_ENABLED !== "false",
+      codAllowedStates: Array.isArray(
+        settings?.payments?.paymentOnDeliveryAllowedStates,
+      )
         ? settings.payments.paymentOnDeliveryAllowedStates
             .map((s) => String(s ?? "").trim())
             .filter(Boolean)
@@ -165,29 +158,23 @@ export async function GET() {
       monnifyKeyConfigured,
       bachsFieldsConfigured,
     };
-    
+
     return NextResponse.json(publicSettings);
-  } catch (error) {
-    console.error("[PaymentSettings] Error:", error);
+  } catch {
     return NextResponse.json(
-      { 
-        monnify: process.env.NEXT_PUBLIC_MONNIFY_ENABLED === "true",
-        squad: process.env.NEXT_PUBLIC_SQUAD_ENABLED === "true",
-        paystack: process.env.NEXT_PUBLIC_PAYSTACK_ENABLED === 'true',
-        korapay: process.env.NEXT_PUBLIC_KORAPAY_ENABLED === 'true',
-        flutterwave: process.env.NEXT_PUBLIC_FLUTTERWAVE_ENABLED === 'true',
-        bachs: process.env.NEXT_PUBLIC_BACHS_ENABLED === 'true',
-        cod: process.env.NEXT_PUBLIC_COD_ENABLED !== 'false',
-        codAllowedStates: [],
-        paystackKeyConfigured: false,
-        korapayKeyConfigured: false,
-        flutterwaveKeyConfigured: false,
-        bachsKeyConfigured: false,
-        squadKeyConfigured: {},
-        monnifyKeyConfigured: {},
-        bachsFieldsConfigured: {},
+      {
+        ok: false,
+        reason:
+          "Admin has not configured the store name. Please contact support.",
+        paystack: false,
+        korapay: false,
+        squad: false,
+        monnify: false,
+        bachs: false,
+        flutterwave: false,
+        cod: false,
       },
-      { status: 200 }
+      { status: 503 },
     );
   }
 }

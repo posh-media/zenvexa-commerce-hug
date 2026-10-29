@@ -1,20 +1,21 @@
-import { NextResponse } from "next/server";
-import { initializePaystackBodySchema } from "@/schemas/payment.schema";
-import { initializeKorapayForOrder } from "@/lib/server/payment-service";
 import { reportPaymentFailure } from "@/lib/monitoring";
+import { isKorapayConfigured, isKorapayEnabled } from "@/lib/server/env";
+import { isFirebaseAdminConfigured } from "@/lib/server/firebase-admin";
+import { paymentLog } from "@/lib/server/payment-log";
+import { initializeKorapayForOrder } from "@/lib/server/payment-service";
 import {
   clientKeyFromRequest,
   publicErrorMessage,
   rateLimit,
 } from "@/lib/server/rate-limit";
-import { isKorapayConfigured, isKorapayEnabled } from "@/lib/server/env";
-import { isFirebaseAdminConfigured } from "@/lib/server/firebase-admin";
-import { paymentLog } from "@/lib/server/payment-log";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { initializePaystackBodySchema } from "@/schemas/payment.schema";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "korapay-init"),
     limit: 20,
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
   try {
     const json = await request.json();
     console.log("[KoraPay Initialize API] Request received", json);
-    
+
     const parsed = initializePaystackBodySchema.safeParse(json);
     if (!parsed.success) {
       console.error("[KoraPay Initialize API] Invalid body", parsed.error);
@@ -60,11 +61,18 @@ export async function POST(request: Request) {
       korapayEnabled: isKorapayEnabled(),
     });
 
-    if (!isFirebaseAdminConfigured() || !isKorapayConfigured() || !isKorapayEnabled()) {
+    if (
+      !isFirebaseAdminConfigured() ||
+      !isKorapayConfigured() ||
+      !isKorapayEnabled()
+    ) {
       console.error("[KoraPay Initialize API] Configuration failed");
       paymentLog("init.failure", "KoraPay not configured or disabled", {});
       return NextResponse.json(
-        { ok: false, reason: "KoraPay is not configured or is currently disabled." },
+        {
+          ok: false,
+          reason: "KoraPay is not configured or is currently disabled.",
+        },
         { status: 503 },
       );
     }
@@ -79,7 +87,10 @@ export async function POST(request: Request) {
       callbackUrl: parsed.data.callbackUrl,
     });
 
-    console.log("[KoraPay Initialize API] Result", { ok: result.ok, reason: result.reason });
+    console.log("[KoraPay Initialize API] Result", {
+      ok: result.ok,
+      reason: result.reason,
+    });
 
     if (!result.ok) {
       paymentLog("init.failure", "KoraPay initialize failed", {
@@ -115,4 +126,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    initialize: true,
+  });
 }

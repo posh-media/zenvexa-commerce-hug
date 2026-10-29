@@ -1,3 +1,4 @@
+import { settingsDocumentId } from "@/lib/store";
 /**
  * Firestore collection paths for Zenvexa.
  * Catalog collections are live; commerce collections are prepared for Phase 3+.
@@ -26,4 +27,4 @@ export const COLLECTIONS = {
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];
 
 /** Singleton settings document id. */
-export const APP_SETTINGS_DOC_ID = "app";
+export const APP_SETTINGS_DOC_ID = settingsDocumentId();

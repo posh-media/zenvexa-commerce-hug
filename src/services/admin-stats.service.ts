@@ -1,16 +1,19 @@
 import { LOW_STOCK_THRESHOLD } from "@/constants/app";
 import { formatPrice } from "@/lib/utils";
-import { listAllProductsAdmin } from "@/services/admin-products.service";
-import { listCategoriesAdmin, listBrandsAdmin } from "@/services/admin-catalog.service";
-import { listOrdersAdmin } from "@/services/admin-orders.service";
-import { listCustomersAdmin } from "@/services/admin-customers.service";
-import { listCouponsAdmin } from "@/services/admin-coupons.service";
-import { listAllNotificationsAdmin } from "@/services/admin-notifications.service";
 import {
-  listAdsAdmin,
   calculateTotalAdsExpenses,
   calculateTotalOtherExpenses,
+  listAdsAdmin,
 } from "@/services/admin-ads.service";
+import {
+  listBrandsAdmin,
+  listCategoriesAdmin,
+} from "@/services/admin-catalog.service";
+import { listCouponsAdmin } from "@/services/admin-coupons.service";
+import { listCustomersAdmin } from "@/services/admin-customers.service";
+import { listAllNotificationsAdmin } from "@/services/admin-notifications.service";
+import { listOrdersAdmin } from "@/services/admin-orders.service";
+import { listAllProductsAdmin } from "@/services/admin-products.service";
 import {
   getPageVisitStats,
   getVisitsForDays,
@@ -113,23 +116,15 @@ export type DashboardStats = {
 export async function getAdminDashboardStats(
   range?: DashboardRange,
 ): Promise<DashboardStats> {
-  const [
-    products,
-    categories,
-    brands,
-    orders,
-    customers,
-    coupons,
-    notifications,
-  ] = await Promise.all([
-    listAllProductsAdmin(),
-    listCategoriesAdmin(),
-    listBrandsAdmin(),
-    listOrdersAdmin(),
-    listCustomersAdmin(),
-    listCouponsAdmin(),
-    listAllNotificationsAdmin(),
-  ]);
+  const [products, categories, brands, orders, coupons, notifications] =
+    await Promise.all([
+      listAllProductsAdmin(),
+      listCategoriesAdmin(),
+      listBrandsAdmin(),
+      listOrdersAdmin(),
+      listCouponsAdmin(),
+      listAllNotificationsAdmin(),
+    ]);
 
   // Ads are isolated so an ads query failure does not take down the
   // whole dashboard. Errors are logged, not silently swallowed.
@@ -168,9 +163,7 @@ export async function getAdminDashboardStats(
   const archivedProducts = products.filter((p) => p.active === false);
   // Expense records carry a YYYY-MM-DD `date` string; legacy records without
   // a `type` count as ads (handled inside the calculators).
-  const rangedAds = ads.filter((ad) =>
-    inRange(toTime(ad.date), range),
-  );
+  const rangedAds = ads.filter((ad) => inRange(toTime(ad.date), range));
   const totalAdsExpenses = calculateTotalAdsExpenses(rangedAds);
   const totalOtherExpenses = calculateTotalOtherExpenses(rangedAds);
   const revenueAfterAds = totalRevenue - totalAdsExpenses - totalOtherExpenses;
@@ -217,12 +210,15 @@ export async function getAdminDashboardStats(
     products: products.length,
     categories: categories.length,
     brands: brands.length,
-    customers: customers.length,
+    customers: new Set(orders.map((order) => order.userId).filter(Boolean))
+      .size,
     coupons: coupons.length,
     notifications: notifications.length,
     lowStock: lowStockProducts.length,
     outOfStock: products.filter((p) => p.stock <= 0).length,
-    recentOrders: [...orders].sort((a, b) => orderTime(b) - orderTime(a)).slice(0, 8),
+    recentOrders: [...orders]
+      .sort((a, b) => orderTime(b) - orderTime(a))
+      .slice(0, 8),
     lowStockProducts: lowStockProducts.slice(0, 8),
     // New secondary values
     todayRevenue,
@@ -291,29 +287,37 @@ export async function getAdminAnalytics(): Promise<AnalyticsSnapshot> {
   }
 
   const monthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const newCustomers = customers.filter((c) => {
-    const created =
-      c.createdAt instanceof Date
-        ? c.createdAt.getTime()
-        : c.created_time instanceof Date
-          ? c.created_time.getTime()
-          : 0;
-    return created >= monthAgo;
-  }).length;
+  const firstOrderByCustomer = new Map<string, number>();
+  const salesByProduct = new Map<string, { name: string; sales: number }>();
+  for (const order of orders) {
+    const time = orderTime(order);
+    if (time)
+      firstOrderByCustomer.set(
+        order.userId,
+        Math.min(firstOrderByCustomer.get(order.userId) ?? Infinity, time),
+      );
+  }
+  for (const order of paid)
+    for (const item of order.products ?? order.items ?? []) {
+      const entry = salesByProduct.get(item.productId) ?? {
+        name: item.name || item.productId,
+        sales: 0,
+      };
+      entry.sales += Number(item.quantity) || 0;
+      salesByProduct.set(item.productId, entry);
+    }
+  const newCustomers = Array.from(firstOrderByCustomer.values()).filter(
+    (time) => time >= monthAgo,
+  ).length;
 
   return {
     revenueByDay: Array.from(dayMap.entries()).map(([label, value]) => ({
       label: label.slice(5),
       value,
     })),
-    bestSellers: [...products]
-      .sort((a, b) => (b.salesCount ?? 0) - (a.salesCount ?? 0))
-      .slice(0, 8)
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        sales: p.salesCount ?? 0,
-      })),
+    bestSellers: Array.from(salesByProduct, ([id, row]) => ({ id, ...row }))
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 8),
     mostViewed: [...products]
       .sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
       .slice(0, 8)

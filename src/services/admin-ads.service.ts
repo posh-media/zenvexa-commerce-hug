@@ -1,17 +1,19 @@
+import { COLLECTIONS } from "@/constants/collections";
+import { getDb } from "@/firebase/firestore";
+import { belongsToStore, deploymentStoreId } from "@/lib/store";
+import { storeDocuments } from "@/lib/store-queries";
+import { writeAuditLog } from "@/services/audit.service";
+import type { Ad, AdDocument, AdInput } from "@/types/ads";
 import {
   addDoc,
+  collection,
   deleteDoc,
   deleteField,
+  doc,
   getDoc,
-  getDocs,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { collection, doc } from "firebase/firestore";
-import { getDb } from "@/firebase/firestore";
-import { COLLECTIONS } from "@/constants/collections";
-import { writeAuditLog } from "@/services/audit.service";
-import type { Ad, AdDocument, AdInput } from "@/types/ads";
 
 type Actor = { id: string; email?: string };
 
@@ -20,9 +22,9 @@ const adsCollection = () => collection(getDb(), COLLECTIONS.ads);
 const adDoc = (id: string) => doc(getDb(), COLLECTIONS.ads, id);
 
 export async function listAdsAdmin(): Promise<Ad[]> {
-  const snapshot = await getDocs(adsCollection());
-  return snapshot.docs
-    .map((d) => ({ id: d.id, ...d.data() } as Ad))
+  const documents = await storeDocuments(adsCollection());
+  return documents
+    .map((d) => ({ id: d.id, ...d.data() }) as Ad)
     .sort((a, b) => {
       // Sort by date descending (newest first)
       const aDate = new Date(a.date).getTime();
@@ -34,6 +36,7 @@ export async function listAdsAdmin(): Promise<Ad[]> {
 export async function createAdAdmin(input: AdInput, actor: Actor) {
   const isAds = input.type !== "other_expense";
   const payload: AdDocument = {
+    storeId: deploymentStoreId(),
     type: isAds ? "ads" : "other_expense",
     // Ads-only fields are cleared for Other Expense records.
     platform: isAds ? input.platform.trim() : "",
@@ -44,9 +47,9 @@ export async function createAdAdmin(input: AdInput, actor: Actor) {
     createdAt: serverTimestamp() as never,
     updatedAt: serverTimestamp() as never,
   };
-  
+
   const ref = await addDoc(adsCollection(), payload);
-  
+
   await writeAuditLog({
     actorId: actor.id,
     actorEmail: actor.email,
@@ -55,14 +58,14 @@ export async function createAdAdmin(input: AdInput, actor: Actor) {
     resourceId: ref.id,
     newValue: { platform: payload.platform, amount: payload.amount },
   });
-  
+
   return ref.id;
 }
 
 export async function updateAdAdmin(id: string, input: AdInput, actor: Actor) {
   const existing = await getAdAdmin(id);
   if (!existing) throw new Error("Ad expense not found.");
-  
+
   const isAds = input.type !== "other_expense";
   const next: Record<string, unknown> = {
     type: isAds ? "ads" : "other_expense",
@@ -77,9 +80,9 @@ export async function updateAdAdmin(id: string, input: AdInput, actor: Actor) {
     description: input.description?.trim() || deleteField(),
     updatedAt: serverTimestamp() as never,
   };
-  
+
   await updateDoc(adDoc(id), next);
-  
+
   await writeAuditLog({
     actorId: actor.id,
     actorEmail: actor.email,
@@ -94,9 +97,9 @@ export async function updateAdAdmin(id: string, input: AdInput, actor: Actor) {
 export async function deleteAdAdmin(id: string, actor: Actor) {
   const existing = await getAdAdmin(id);
   if (!existing) throw new Error("Ad expense not found.");
-  
+
   await deleteDoc(adDoc(id));
-  
+
   await writeAuditLog({
     actorId: actor.id,
     actorEmail: actor.email,
@@ -109,23 +112,21 @@ export async function deleteAdAdmin(id: string, actor: Actor) {
 
 export async function getAdAdmin(id: string) {
   const snapshot = await getDoc(adDoc(id));
-  return snapshot.exists()
+  return snapshot.exists() && belongsToStore(snapshot.data())
     ? ({ id: snapshot.id, ...snapshot.data() } as Ad)
     : undefined;
 }
 
 export function calculateTotalAdsExpenses(ads: Ad[]): number {
   return ads.reduce(
-    (total, ad) =>
-      total + ((ad.type ?? "ads") === "ads" ? ad.amount || 0 : 0),
+    (total, ad) => total + ((ad.type ?? "ads") === "ads" ? ad.amount || 0 : 0),
     0,
   );
 }
 
 export function calculateTotalOtherExpenses(ads: Ad[]): number {
   return ads.reduce(
-    (total, ad) =>
-      total + (ad.type === "other_expense" ? ad.amount || 0 : 0),
+    (total, ad) => total + (ad.type === "other_expense" ? ad.amount || 0 : 0),
     0,
   );
 }
@@ -133,7 +134,20 @@ export function calculateTotalOtherExpenses(ads: Ad[]): number {
 export function formatAdDate(dateString: string): string {
   try {
     const date = new Date(dateString);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const month = months[date.getMonth()];
     const day = date.getDate();
     const year = date.getFullYear();

@@ -1,14 +1,14 @@
+import { COLLECTIONS } from "@/constants/collections";
+import { getDb } from "@/firebase/firestore";
+import { deploymentStoreId, scopedCounterId } from "@/lib/store";
+import { storeDocuments } from "@/lib/store-queries";
 import {
   collection,
   doc,
-  getDoc,
-  getDocs,
   increment,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
-import { getDb } from "@/firebase/firestore";
-import { COLLECTIONS } from "@/constants/collections";
 
 /**
  * Aggregated page-visit counters. Two small writes per visit:
@@ -37,18 +37,20 @@ export async function trackPageVisit(path: string) {
     const db = getDb();
     await Promise.all([
       setDoc(
-        doc(db, COLLECTIONS.pageVisitTotals, encodePath(path)),
+        doc(db, COLLECTIONS.pageVisitTotals, scopedCounterId(encodePath(path))),
         {
           path,
+          storeId: deploymentStoreId(),
           count: increment(1),
           lastVisitAt: serverTimestamp(),
         },
         { merge: true },
       ),
       setDoc(
-        doc(db, COLLECTIONS.pageVisitDays, todayKey()),
+        doc(db, COLLECTIONS.pageVisitDays, scopedCounterId(todayKey())),
         {
           date: todayKey(),
+          storeId: deploymentStoreId(),
           count: increment(1),
           updatedAt: serverTimestamp(),
         },
@@ -68,25 +70,27 @@ export async function getPageVisitStats(): Promise<{
   topPages: PageVisitStat[];
 }> {
   const db = getDb();
-  const [totalsSnap, todaySnap] = await Promise.all([
-    getDocs(collection(db, COLLECTIONS.pageVisitTotals)),
-    getDoc(doc(db, COLLECTIONS.pageVisitDays, todayKey())),
+  const [totals, days] = await Promise.all([
+    storeDocuments(collection(db, COLLECTIONS.pageVisitTotals)),
+    storeDocuments(collection(db, COLLECTIONS.pageVisitDays)),
   ]);
-
-  const pages: PageVisitStat[] = totalsSnap.docs
-    .map((d) => {
-      const data = d.data() as { path?: string; count?: number };
-      return { path: data.path ?? d.id, count: Number(data.count ?? 0) };
-    })
-    .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
-
-  const todayData = todaySnap?.exists()
-    ? (todaySnap.data() as { count?: number })
-    : undefined;
+  const byPath = new Map<string, number>();
+  for (const d of totals) {
+    const data = d.data();
+    const key = String(data.path ?? d.id);
+    byPath.set(key, (byPath.get(key) || 0) + Number(data.count || 0));
+  }
+  const pages: PageVisitStat[] = Array.from(byPath, ([path, count]) => ({
+    path,
+    count,
+  })).sort((a, b) => b.count - a.count);
+  const today = days
+    .filter((d) => (d.data().date ?? d.id) === todayKey())
+    .reduce((n, d) => n + Number(d.data().count || 0), 0);
 
   return {
     total: pages.reduce((sum, p) => sum + p.count, 0),
-    today: Number(todayData?.count ?? 0),
+    today: today,
     topPages: pages.slice(0, 10),
   };
 }
@@ -100,8 +104,10 @@ export async function getVisitsForDays(
   toKey: string,
 ): Promise<number> {
   const db = getDb();
-  const snap = await getDocs(collection(db, COLLECTIONS.pageVisitDays));
-  return snap.docs.reduce((sum, d) => {
+  const documents = await storeDocuments(
+    collection(db, COLLECTIONS.pageVisitDays),
+  );
+  return documents.reduce((sum, d) => {
     const data = d.data() as { date?: string; count?: number };
     const key = String(data.date ?? d.id);
     if (key < fromKey || key > toKey) return sum;

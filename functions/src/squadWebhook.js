@@ -1,3 +1,4 @@
+const { routeStoreWebhook } = require("./store-routing");
 /**
  * Squad HTTPS webhook (Firebase Cloud Function).
  * Mirrors src/app/api/payments/squad/webhook/route.ts behaviour:
@@ -62,9 +63,7 @@ function verifySquadSignature(rawBody, signature, secrets) {
 }
 
 async function verifyWithSquad(reference, sandbox, secrets) {
-  const secretKey = sandbox
-    ? secrets.sandboxSecretKey
-    : secrets.liveSecretKey;
+  const secretKey = sandbox ? secrets.sandboxSecretKey : secrets.liveSecretKey;
   if (!secretKey) throw new Error("Squad secret key is not configured.");
   const base = sandbox
     ? "https://sandbox-api-d.squadco.com"
@@ -98,6 +97,14 @@ exports.squadWebhook = onRequest(
     memory: "256MiB",
   },
   async (req, res) => {
+    try {
+      if (await routeStoreWebhook(req, res, "squad")) return;
+    } catch {
+      res
+        .status(503)
+        .json({ ok: false, reason: "Store webhook routing unavailable." });
+      return;
+    }
     if (req.method !== "POST") {
       res.status(405).json({ ok: false, reason: "Method not allowed." });
       return;
@@ -145,7 +152,10 @@ exports.squadWebhook = onRequest(
       res.status(200).json({ ok: true, ignored: true });
       return;
     }
-    if (event.Body?.transaction_ref && event.Body.transaction_ref !== reference) {
+    if (
+      event.Body?.transaction_ref &&
+      event.Body.transaction_ref !== reference
+    ) {
       res.status(400).json({ ok: false, reason: "Reference mismatch." });
       return;
     }
@@ -161,22 +171,31 @@ exports.squadWebhook = onRequest(
         .get();
       const paymentDoc = paymentSnap.empty ? null : paymentSnap.docs[0];
       if (!paymentDoc) {
-        res.status(200).json({ ok: true, ignored: true, reason: "payment_not_found" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "payment_not_found" });
         return;
       }
       const payment = paymentDoc.data();
       const orderId = payment.orderId;
       const sandbox = payment.metadata?.sandbox !== false;
 
-      const orderSnap = await db.collection(COLLECTIONS.orders).doc(orderId).get();
+      const orderSnap = await db
+        .collection(COLLECTIONS.orders)
+        .doc(orderId)
+        .get();
       if (!orderSnap.exists) {
-        res.status(200).json({ ok: true, ignored: true, reason: "order_missing" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "order_missing" });
         return;
       }
       const order = { id: orderSnap.id, ...orderSnap.data() };
       const isCodFee = payment.purpose === COD_FEE_PURPOSE;
       if (order.paymentMethod !== "squad" && !isCodFee) {
-        res.status(200).json({ ok: true, ignored: true, reason: "not_squad_order" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "not_squad_order" });
         return;
       }
 
@@ -209,11 +228,14 @@ exports.squadWebhook = onRequest(
             paymentDocId: paymentDoc.id,
           });
         }
-        res.status(200).json({ ok: true, ignored: true, reason: "not_successful" });
+        res
+          .status(200)
+          .json({ ok: true, ignored: true, reason: "not_successful" });
         return;
       }
       if (
-        String(verified.transaction_currency_id || "NGN").toUpperCase() !== "NGN"
+        String(verified.transaction_currency_id || "NGN").toUpperCase() !==
+        "NGN"
       ) {
         res.status(400).json({ ok: false, reason: "Currency mismatch." });
         return;

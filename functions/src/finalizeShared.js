@@ -1,3 +1,4 @@
+const { storeFrom } = require("./store-routing");
 /**
  * Shared order/payment finalization for gateway webhook Cloud Functions.
  * Mirrors the logic in paystackWebhook.js, parameterized by gateway name so
@@ -81,10 +82,14 @@ async function finalizeSuccessfulPayment({
   return db.runTransaction(async (tx) => {
     const orderRef = db.collection(COLLECTIONS.orders).doc(orderId);
     const orderSnap = await tx.get(orderRef);
+    if (orderSnap.exists && storeFrom(orderSnap.data()) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (!orderSnap.exists) {
       return { ok: false, reason: "Order not found." };
     }
     const order = { id: orderSnap.id, ...orderSnap.data() };
+    if (storeFrom(order) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
 
     if (order.paymentStatus === "paid" && order.inventoryReserved) {
       return { ok: true, order, alreadyProcessed: true };
@@ -92,7 +97,10 @@ async function finalizeSuccessfulPayment({
 
     const expectedTotal = Number(order.total ?? order.totals?.total ?? 0);
     if (!amountsMatch(expectedTotal, verified.amount)) {
-      return { ok: false, reason: "Paid amount does not match the order total." };
+      return {
+        ok: false,
+        reason: "Paid amount does not match the order total.",
+      };
     }
     if ((verified.currency || "NGN").toUpperCase() !== "NGN") {
       return { ok: false, reason: "Unsupported payment currency." };
@@ -106,7 +114,9 @@ async function finalizeSuccessfulPayment({
     const productLocks = [];
     if (!order.inventoryReserved) {
       for (const line of lines) {
-        const productRef = db.collection(COLLECTIONS.products).doc(line.productId);
+        const productRef = db
+          .collection(COLLECTIONS.products)
+          .doc(line.productId);
         const productSnap = await tx.get(productRef);
         if (!productSnap.exists) {
           return {
@@ -169,17 +179,22 @@ async function finalizeSuccessfulPayment({
       "order_confirmed",
     );
 
-    tx.update(orderRef, stripUndefined({
-      paymentStatus: "paid",
-      orderStatus: "paid",
-      status: "paid",
-      paymentReference: verified.reference,
-      paymentId: paymentRef.id,
-      inventoryReserved: true,
-      paidAt: verified.paid_at ? new Date(verified.paid_at) : FieldValue.serverTimestamp(),
-      timeline,
-      updatedAt: FieldValue.serverTimestamp(),
-    }));
+    tx.update(
+      orderRef,
+      stripUndefined({
+        paymentStatus: "paid",
+        orderStatus: "paid",
+        status: "paid",
+        paymentReference: verified.reference,
+        paymentId: paymentRef.id,
+        inventoryReserved: true,
+        paidAt: verified.paid_at
+          ? new Date(verified.paid_at)
+          : FieldValue.serverTimestamp(),
+        timeline,
+        updatedAt: FieldValue.serverTimestamp(),
+      }),
+    );
 
     const paymentPayload = {
       orderId: order.id,
@@ -236,10 +251,14 @@ async function finalizeCodCommitmentFee({
   return db.runTransaction(async (tx) => {
     const orderRef = db.collection(COLLECTIONS.orders).doc(orderId);
     const orderSnap = await tx.get(orderRef);
+    if (orderSnap.exists && storeFrom(orderSnap.data()) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (!orderSnap.exists) {
       return { ok: false, reason: "Order not found." };
     }
     const order = { id: orderSnap.id, ...orderSnap.data() };
+    if (storeFrom(order) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
 
     if (order.commitmentFeeStatus === "paid" && order.inventoryReserved) {
       return { ok: true, order, alreadyProcessed: true };
@@ -251,7 +270,9 @@ async function finalizeCodCommitmentFee({
 
     const expectedFee = Number(
       order.codCommitmentFee ??
-        computeCodCommitmentFee(Number(order.total ?? order.totals?.total ?? 0)),
+        computeCodCommitmentFee(
+          Number(order.total ?? order.totals?.total ?? 0),
+        ),
     );
     if (!amountsMatch(expectedFee, verified.amount)) {
       return {
@@ -271,7 +292,9 @@ async function finalizeCodCommitmentFee({
     const productLocks = [];
     if (!order.inventoryReserved) {
       for (const line of lines) {
-        const productRef = db.collection(COLLECTIONS.products).doc(line.productId);
+        const productRef = db
+          .collection(COLLECTIONS.products)
+          .doc(line.productId);
         const productSnap = await tx.get(productRef);
         if (!productSnap.exists) {
           return {
@@ -342,23 +365,26 @@ async function finalizeCodCommitmentFee({
       "Commitment fee verified — balance due on delivery.",
     );
 
-    tx.update(orderRef, stripUndefined({
-      commitmentFeeStatus: "paid",
-      codAmountPaid: amountNaira,
-      codBalance: balance,
-      commitmentFeePaidAt: verified.paid_at
-        ? new Date(verified.paid_at)
-        : FieldValue.serverTimestamp(),
-      paymentStatus: "pending",
-      orderStatus: "processing",
-      status: "processing",
-      paymentGateway: gateway,
-      paymentReference: verified.reference,
-      paymentId: paymentRef.id,
-      inventoryReserved: true,
-      timeline,
-      updatedAt: FieldValue.serverTimestamp(),
-    }));
+    tx.update(
+      orderRef,
+      stripUndefined({
+        commitmentFeeStatus: "paid",
+        codAmountPaid: amountNaira,
+        codBalance: balance,
+        commitmentFeePaidAt: verified.paid_at
+          ? new Date(verified.paid_at)
+          : FieldValue.serverTimestamp(),
+        paymentStatus: "pending",
+        orderStatus: "processing",
+        status: "processing",
+        paymentGateway: gateway,
+        paymentReference: verified.reference,
+        paymentId: paymentRef.id,
+        inventoryReserved: true,
+        timeline,
+        updatedAt: FieldValue.serverTimestamp(),
+      }),
+    );
 
     const paymentPayload = {
       orderId: order.id,
@@ -407,13 +433,24 @@ async function finalizeCodCommitmentFee({
   });
 }
 
-async function markPaymentFailed({ orderId, reference, status, reason, eventId, paymentDocId }) {
+async function markPaymentFailed({
+  orderId,
+  reference,
+  status,
+  reason,
+  eventId,
+  paymentDocId,
+}) {
   const db = getFirestore();
   return db.runTransaction(async (tx) => {
     const orderRef = db.collection(COLLECTIONS.orders).doc(orderId);
     const orderSnap = await tx.get(orderRef);
+    if (orderSnap.exists && storeFrom(orderSnap.data()) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (!orderSnap.exists) return { ok: false, reason: "Order not found." };
     const order = { id: orderSnap.id, ...orderSnap.data() };
+    if (storeFrom(order) !== "shopbeta")
+      throw new Error("Legacy handler store mismatch.");
     if (order.paymentStatus === "paid") {
       return { ok: true, order, alreadyProcessed: true };
     }
@@ -445,7 +482,11 @@ async function markPaymentFailed({ orderId, reference, status, reason, eventId, 
       }
     }
 
-    return { ok: true, order: { ...order, paymentStatus: status, timeline }, alreadyProcessed: false };
+    return {
+      ok: true,
+      order: { ...order, paymentStatus: status, timeline },
+      alreadyProcessed: false,
+    };
   });
 }
 
@@ -453,6 +494,8 @@ function buildMakePayload(order, reference) {
   const lines = order.products || order.items || [];
   const address = order.shippingAddress || {};
   return {
+    storeId: "shopbeta",
+    storeName: order.storeName || "ShopBeta",
     customerName: order.customer?.name || "Customer",
     customerEmail: order.customer?.email || "",
     phoneNumber: order.customer?.phone || address.phone || "",
@@ -481,7 +524,8 @@ function buildMakePayload(order, reference) {
         productName: item.name || item.productId,
         quantity,
         price,
-        subtotal: item.lineTotal != null ? Number(item.lineTotal) : price * quantity,
+        subtotal:
+          item.lineTotal != null ? Number(item.lineTotal) : price * quantity,
       };
     }),
     subtotal: Number(order.subtotal ?? order.totals?.subtotal ?? 0),
@@ -521,8 +565,13 @@ async function notifyMake(order, reference) {
   try {
     const response = await fetch(makeUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(buildMakePayload({ ...order, ...latest, id: order.id }, reference)),
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(
+        buildMakePayload({ ...order, ...latest, id: order.id }, reference),
+      ),
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");

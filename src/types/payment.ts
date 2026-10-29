@@ -15,6 +15,10 @@ export type OrderTimelineEntry = {
 
 /** `payments` collection document. */
 export type PaymentDocument = Timestamps & {
+  storeId?: "shopbeta" | "zenvexa";
+  storeName?: string;
+  credentialVersion?: string;
+
   orderId: string;
   orderNumber?: string;
   userId: string;

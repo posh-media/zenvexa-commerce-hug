@@ -1,14 +1,15 @@
-import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/server/firebase-admin";
-import { getMonnifyConfiguration } from "@/lib/server/monnify-settings";
 import { verifyMonnifyWebhookSignature } from "@/lib/server/monnify";
 import { verifyMonnifyForReference } from "@/lib/server/monnify-payment-service";
+import { getMonnifyConfiguration } from "@/lib/server/monnify-settings";
 import { clientKeyFromRequest, rateLimit } from "@/lib/server/rate-limit";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "monnify-webhook"),
     limit: 120,
@@ -67,4 +68,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    webhook: "monnify",
+  });
 }

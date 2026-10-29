@@ -1,19 +1,21 @@
+import { couponDoc, couponsCollection } from "@/firebase/collections";
+import { belongsToStore, deploymentStoreId } from "@/lib/store";
+import { storeDocuments } from "@/lib/store-queries";
+import { writeAuditLog } from "@/services/audit.service";
+import type { Coupon, CouponDocument } from "@/types/coupon";
 import {
   addDoc,
   deleteDoc,
-  getDocs,
+  getDoc,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { couponDoc, couponsCollection } from "@/firebase/collections";
-import { writeAuditLog } from "@/services/audit.service";
-import type { Coupon, CouponDocument } from "@/types/coupon";
 
 type Actor = { id: string; email?: string };
 
 export async function listCouponsAdmin(): Promise<Coupon[]> {
-  const snapshot = await getDocs(couponsCollection());
-  return snapshot.docs.map((d) => d.data());
+  const documents = await storeDocuments(couponsCollection());
+  return documents.map((d) => d.data());
 }
 
 export async function createCouponAdmin(
@@ -22,6 +24,7 @@ export async function createCouponAdmin(
 ) {
   const payload: CouponDocument = {
     ...input,
+    storeId: deploymentStoreId(),
     code: input.code.trim().toUpperCase(),
     active: input.active !== false,
     usedCount: input.usedCount ?? 0,
@@ -47,9 +50,13 @@ export async function updateCouponAdmin(
 ) {
   const next = {
     ...patch,
+    storeId: deploymentStoreId(),
     ...(patch.code ? { code: patch.code.trim().toUpperCase() } : {}),
     updatedAt: serverTimestamp(),
   };
+  const existing = await getDoc(couponDoc(id));
+  if (!existing.exists() || !belongsToStore(existing.data()))
+    throw new Error("Record not found.");
   await updateDoc(couponDoc(id), next);
   await writeAuditLog({
     actorId: actor.id,
@@ -62,6 +69,9 @@ export async function updateCouponAdmin(
 }
 
 export async function deleteCouponAdmin(id: string, actor: Actor) {
+  const existing = await getDoc(couponDoc(id));
+  if (!existing.exists() || !belongsToStore(existing.data()))
+    throw new Error("Record not found.");
   await deleteDoc(couponDoc(id));
   await writeAuditLog({
     actorId: actor.id,

@@ -83,11 +83,27 @@ service cloud.firestore {
         request.resource.data.stock < resource.data.stock;
     }
 
+    function validStore(value) { return value in ['shopbeta','zenvexa']; }
+    function unchangedStore() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['storeId','storeName','store']);
+    }
+    function storeNamePresent(data) {
+      return data.storeInformation.name is string && data.storeInformation.name.size() > 0 && !data.storeInformation.name.matches('[[:space:]]*');
+    }
+    function namedStore(storeId) {
+      let path = storeId == 'zenvexa' ? 'Zenvexa' : 'ShopBeta';
+      return storeNamePresent(get(/databases/$(database)/documents/settings/$(path)).data);
+    }
+    function validNewCounter(key,field) {
+      return validStore(request.resource.data.storeId) &&
+        key == request.resource.data.storeId + '__' + field;
+    }
+
     // ---------- Public catalogue ----------
     match /products/{productId} {
       allow read: if true;
       allow create, delete: if canManageCatalog();
-      allow update: if canManageCatalog() || isStockDecrement();
+      allow update: if canManageCatalog();
     }
 
     match /categories/{categoryId} {
@@ -102,7 +118,26 @@ service cloud.firestore {
 
     match /settings/{settingsId} {
       allow read: if true;
-      allow write: if isSuperOrAdmin();
+      allow write: if isSuperOrAdmin() && (settingsId == 'app' ||
+        ((settingsId == 'ShopBeta' && request.resource.data.storeId == 'shopbeta' ||
+          settingsId == 'Zenvexa' && request.resource.data.storeId == 'zenvexa') &&
+          storeNamePresent(request.resource.data) &&
+          !request.resource.data.keys().hasAny(['paymentSecrets','storeName']) &&
+          !request.resource.data.get('notifications', {}).keys().hasAny(['makeWebhookUrl','transactionalEmailWebhookUrl'])));
+    }
+
+    // Store-scoped credentials are write-only for administrators; versions are Admin SDK only.
+    match /privatePaymentSettings/{storeId}/providers/{provider} {
+      allow read, delete: if false;
+      allow create, update: if isSuperOrAdmin() && validStore(storeId) && namedStore(storeId) &&
+        provider in ['paystack','korapay','flutterwave','squad','monnify','bachs'] &&
+        request.resource.data.keys().hasOnly(['secretKey','sandboxSecretKey','liveSecretKey','sandboxApiKey','liveApiKey','sandboxContractCode','liveContractCode','sandboxWebhookSecret','liveWebhookSecret','updatedAt']);
+      match /versions/{version} { allow read, write: if false; }
+    }
+    match /privateStoreSettings/{storeId} {
+      allow read, delete: if false;
+      allow create, update: if isSuperOrAdmin() && validStore(storeId) && namedStore(storeId) &&
+        request.resource.data.keys().hasOnly(['makeWebhookUrl','transactionalEmailWebhookUrl','updatedAt']);
     }
 
     // Squad keys are write-only for admins and read only through the Admin SDK.
@@ -134,17 +169,25 @@ service cloud.firestore {
 
     match /coupons/{couponId} {
       allow read: if true;
-      allow write: if canManageMarketing() || isSuperOrAdmin();
+      allow create: if (canManageMarketing() || isSuperOrAdmin()) &&
+        (!request.resource.data.keys().hasAny(['storeId']) || validStore(request.resource.data.storeId));
+      allow update: if (canManageMarketing() || isSuperOrAdmin()) && unchangedStore();
+      allow delete: if canManageMarketing() || isSuperOrAdmin();
     }
 
     match /banners/{bannerId} {
       allow read: if true;
-      allow write: if canManageMarketing() || isSuperOrAdmin();
+      allow create: if (canManageMarketing() || isSuperOrAdmin()) &&
+        (!request.resource.data.keys().hasAny(['storeId']) || validStore(request.resource.data.storeId));
+      allow update: if (canManageMarketing() || isSuperOrAdmin()) && unchangedStore();
+      allow delete: if canManageMarketing() || isSuperOrAdmin();
     }
 
     // Advertising expense ledger — staff-only (admins); customers denied
     match /ads/{adId} {
-      allow read, write: if isStaff();
+      allow read, delete: if isStaff();
+      allow create: if isStaff() && (!request.resource.data.keys().hasAny(['storeId']) || validStore(request.resource.data.storeId));
+      allow update: if isStaff() && unchangedStore();
     }
 
     // Aggregated page-visit counters — public increment-only writes, staff read
@@ -152,11 +195,11 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if request.resource.data.count == 1 &&
         request.resource.data.path is string &&
-        request.resource.data.keys().hasOnly(['path', 'count', 'lastVisitAt']);
+        request.resource.data.keys().hasOnly(['path', 'count', 'lastVisitAt','storeId']) && (!('storeId' in request.resource.data) || validStore(request.resource.data.storeId) && pathId.matches(request.resource.data.storeId + '__.*'));
       allow update: if request.resource.data.count ==
           resource.data.count + 1 &&
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['count', 'lastVisitAt']);
+          .hasOnly(['count', 'lastVisitAt']) && unchangedStore();
       allow delete: if false;
     }
 
@@ -164,17 +207,20 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if request.resource.data.count == 1 &&
         request.resource.data.date is string &&
-        request.resource.data.keys().hasOnly(['date', 'count', 'updatedAt']);
+        request.resource.data.keys().hasOnly(['date', 'count', 'updatedAt','storeId']) && (!('storeId' in request.resource.data) || validNewCounter(dayId,request.resource.data.date));
       allow update: if request.resource.data.count ==
           resource.data.count + 1 &&
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['count', 'updatedAt']);
+          .hasOnly(['count', 'updatedAt']) && unchangedStore();
       allow delete: if false;
     }
 
     match /payments/{paymentId} {
       allow read: if isStaff() || ownsExistingUserIdField();
-      allow write: if isSuperOrAdmin();
+      allow create: if isSuperOrAdmin() && !request.resource.data.keys().hasAny(['storeId','storeName','credentialVersion']);
+      allow update: if isSuperOrAdmin() && unchangedStore() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['credentialVersion','orderId','gateway','reference']);
+      allow delete: if isSuperOrAdmin();
     }
 
     match /auditLogs/{logId} {
@@ -217,9 +263,10 @@ service cloud.firestore {
       allow read: if isStaff() ||
         ownsExistingUserIdField() ||
         isGuestUserId(resource.data.userId);
-      allow create: if ownsUserIdField() ||
-        isGuestUserId(request.resource.data.userId);
-      allow update: if canManageOrders() || isSuperOrAdmin();
+      // Attributable orders are server-created. Legacy ShopBeta client writes remain compatible.
+      allow create: if !request.resource.data.keys().hasAny(['storeId','storeName','store']) && (ownsUserIdField() ||
+        isGuestUserId(request.resource.data.userId));
+      allow update: if (canManageOrders() || isSuperOrAdmin()) && unchangedStore();
       allow delete: if isSuperOrAdmin();
     }
 

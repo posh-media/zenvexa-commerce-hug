@@ -5,6 +5,8 @@ export type DiscountType = CouponDiscountType;
 
 /** Planned `coupons` collection document. */
 export type CouponDocument = Timestamps & {
+  storeId?: "shopbeta" | "zenvexa";
+
   code: string;
   description?: string;
   discountType: DiscountType;

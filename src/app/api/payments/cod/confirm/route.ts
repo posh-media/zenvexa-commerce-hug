@@ -1,21 +1,22 @@
-import { NextResponse } from "next/server";
-import { confirmCodBodySchema } from "@/schemas/payment.schema";
-import { getCodAllowedStates, isCodEnabled } from "@/lib/server/env";
-import { isCodStateAllowed } from "@/lib/cod";
-import { getAdminDb } from "@/lib/server/firebase-admin";
 import { COLLECTIONS } from "@/constants/collections";
-import { finalizeCashOnDelivery } from "@/lib/server/finalize-payment";
+import { isCodStateAllowed } from "@/lib/cod";
 import { reportPaymentFailure } from "@/lib/monitoring";
+import { getCodAllowedStates, isCodEnabled } from "@/lib/server/env";
+import { finalizeCashOnDelivery } from "@/lib/server/finalize-payment";
+import { getAdminDb } from "@/lib/server/firebase-admin";
 import {
   clientKeyFromRequest,
   publicErrorMessage,
   rateLimit,
 } from "@/lib/server/rate-limit";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { confirmCodBodySchema } from "@/schemas/payment.schema";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "cod-confirm"),
     limit: 15,
@@ -57,9 +58,13 @@ export async function POST(request: Request) {
       .get();
     if (orderSnap.exists) {
       const allowedStates = await getCodAllowedStates();
-      const state = (orderSnap.data()?.shippingAddress as { state?: string } | undefined)?.state;
+      const state = (
+        orderSnap.data()?.shippingAddress as { state?: string } | undefined
+      )?.state;
       if (!isCodStateAllowed(allowedStates, state)) {
-        const list = allowedStates.length ? allowedStates.join(", ") : "none configured";
+        const list = allowedStates.length
+          ? allowedStates.join(", ")
+          : "none configured";
         return NextResponse.json(
           {
             ok: false,
@@ -102,4 +107,8 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {});
 }

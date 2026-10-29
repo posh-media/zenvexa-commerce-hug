@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
 import { isFirebaseConfigured } from "@/firebase/config";
+import { syncWishlistOnLogin } from "@/lib/wishlist-sync";
 import { ensureUserProfile, subscribeToAuth } from "@/services/auth.service";
 import { listNotificationsByUser } from "@/services/notifications.service";
-import { syncWishlistOnLogin } from "@/lib/wishlist-sync";
 import { useCartStore } from "@/stores/cart.store";
 import { useNotificationsStore } from "@/stores/notifications.store";
 import { useSearchStore } from "@/stores/search.store";
 import { useUserStore } from "@/stores/user.store";
 import { useWishlistStore } from "@/stores/wishlist.store";
+import { useEffect, type ReactNode } from "react";
 
 import { WishlistSyncBridge } from "@/components/commerce/wishlist-sync-bridge";
 import { ClientErrorReporter } from "@/components/system/client-error-reporter";
@@ -44,7 +44,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
     const unsubscribe = subscribeToAuth((user) => {
       void (async () => {
-        if (!user) {
+        if (!user || user.isAnonymous) {
           setAuthUser(null);
           setProfile(null);
           setStatus("anonymous");

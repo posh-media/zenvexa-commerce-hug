@@ -1,3 +1,14 @@
+import { settingsDoc } from "@/firebase/collections";
+import { getDb } from "@/firebase/firestore";
+import {
+  deploymentStoreId,
+  requireStoreName,
+  settingsDocumentId,
+  providerDocumentSegments,
+} from "@/lib/store";
+import { writeAuditLog } from "@/services/audit.service";
+import type { AppSettings, AppSettingsDocument } from "@/types/settings";
+import { stripUndefined } from "@/utils/firestore";
 import {
   deleteField,
   doc,
@@ -5,18 +16,42 @@ import {
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
-import { settingsDoc } from "@/firebase/collections";
-import { getDb } from "@/firebase/firestore";
-import { writeAuditLog } from "@/services/audit.service";
-import { stripUndefined } from "@/utils/firestore";
-import type { AppSettings, AppSettingsDocument } from "@/types/settings";
 
 const SECRET_PROVIDERS = ["paystack", "korapay", "flutterwave"] as const;
 type SecretProvider = (typeof SECRET_PROVIDERS)[number];
 
 export async function getAppSettings(): Promise<AppSettings | undefined> {
-  const snapshot = await getDoc(settingsDoc());
-  return snapshot.exists() ? snapshot.data() : undefined;
+  let data: AppSettings | undefined;
+  if (typeof window === "undefined") {
+    const { storeSettingsRef, currentStoreId } =
+      await import("@/lib/server/store-context");
+    const snapshot = await storeSettingsRef().get();
+    data = snapshot.exists
+      ? ({
+          id: snapshot.id,
+          ...snapshot.data(),
+          storeId: snapshot.data()?.storeId || currentStoreId(),
+        } as AppSettings)
+      : undefined;
+  } else {
+    const snapshot = await getDoc(settingsDoc());
+    data = snapshot.exists() ? snapshot.data() : undefined;
+  }
+  if (!data) return undefined;
+  // Never return secret fields from a public settings reader, including the legacy doc.
+  const { paymentSecrets: _secrets, ...publicData } = data;
+  void _secrets;
+  if (publicData.notifications) {
+    const {
+      makeWebhookUrl: _make,
+      transactionalEmailWebhookUrl: _mail,
+      ...notifications
+    } = publicData.notifications;
+    void _make;
+    void _mail;
+    publicData.notifications = notifications;
+  }
+  return publicData;
 }
 
 /** Nested objects merged field-by-field so partial updates don't drop subfields. */
@@ -35,8 +70,19 @@ function redactSecrets(value: unknown): unknown {
     return value;
   }
   const clone: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    if (key === "paymentSecrets" && nested && typeof nested === "object") {
+  for (const [key, nested] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (
+      /secret|webhook|apikey|privatekey/i.test(key) &&
+      typeof nested === "string"
+    ) {
+      clone[key] = nested ? "[redacted]" : "";
+    } else if (
+      key === "paymentSecrets" &&
+      nested &&
+      typeof nested === "object"
+    ) {
       clone[key] = Object.fromEntries(
         Object.keys(nested as Record<string, unknown>).map((k) => [
           k,
@@ -71,27 +117,42 @@ export async function updateAppSettings(
     }
   }
 
-  // Secrets: only an explicit non-empty value may replace a stored key.
-  // Blank/whitespace/undefined values are dropped so they can never erase
-  // existing credentials.
-  if (patch.paymentSecrets !== undefined) {
-    const clean = Object.fromEntries(
-      Object.entries(patch.paymentSecrets)
-        .filter(([, value]) => typeof value === "string" && value.trim())
-        .map(([key, value]) => [key, (value as string).trim()]),
-    );
-    merged.paymentSecrets = {
-      ...(current.paymentSecrets ?? {}),
-      ...clean,
-    };
+  const name = requireStoreName(merged as AppSettings, deploymentStoreId());
+  merged.storeId = deploymentStoreId();
+  merged.storeInformation = { ...(merged.storeInformation as object), name };
+  // Sensitive integration URLs are private, even though old clients used settings/app.
+  const integrations: Record<string, string> = {};
+  for (const field of [
+    "makeWebhookUrl",
+    "transactionalEmailWebhookUrl",
+  ] as const) {
+    const value = patch.notifications?.[field]?.trim();
+    if (value) integrations[field] = value;
+    if (merged.notifications)
+      delete (merged.notifications as Record<string, unknown>)[field];
   }
+  if (Object.keys(integrations).length)
+    await setDoc(
+      doc(getDb(), "privateStoreSettings", deploymentStoreId()),
+      { ...integrations, updatedAt: serverTimestamp() },
+      { merge: true },
+    );
+  if (patch.paymentSecrets) await saveProviderSecrets(patch.paymentSecrets);
+  delete merged.paymentSecrets;
 
   await setDoc(
     settingsDoc(),
     stripUndefined({
       ...merged,
+      paymentSecrets: deleteField(),
+      storeName: deleteField(),
+      notifications: {
+        ...(merged.notifications as object),
+        makeWebhookUrl: deleteField(),
+        transactionalEmailWebhookUrl: deleteField(),
+      },
       updatedAt: serverTimestamp(),
-    }) as AppSettingsDocument,
+    }),
     { merge: true },
   );
   await writeAuditLog({
@@ -99,14 +160,17 @@ export async function updateAppSettings(
     actorEmail: actor.email,
     action: "settings.update",
     resourceType: "settings",
-    resourceId: "app",
+    resourceId: settingsDocumentId(),
     previousValue: redactSecrets(existing ?? null),
     newValue: redactSecrets(patch),
   });
 }
 
 const privateSecretDoc = (provider: SecretProvider) =>
-  doc(getDb(), "privatePaymentSettings", provider);
+  doc(
+    getDb(),
+    ...(providerDocumentSegments(provider) as [string, ...string[]]),
+  );
 
 /**
  * Write provider secret keys to the write-only `privatePaymentSettings`
@@ -118,6 +182,7 @@ export async function saveProviderSecrets(input: {
   korapaySecretKey?: string;
   flutterwaveSecretKey?: string;
 }) {
+  requireStoreName(await getAppSettings());
   const writes: Array<Promise<unknown>> = [];
   for (const provider of SECRET_PROVIDERS) {
     const value = input[`${provider}SecretKey`]?.trim();
@@ -133,106 +198,59 @@ export async function saveProviderSecrets(input: {
   await Promise.all(writes);
 }
 
-/**
- * One-time migration: legacy `settings/app.paymentSecrets` keys are copied
- * into `privatePaymentSettings/{provider}` and the publicly-readable
- * `paymentSecrets` field is removed from the settings document.
- * Safe to call on every admin save — it no-ops when there is nothing to move.
- */
+/** Compatibility no-op. Legacy migration now requires an explicit backed-up plan. */
 export async function migrateLegacyPaymentSecrets() {
-  const settings = await getAppSettings();
-  const legacy = settings?.paymentSecrets;
-  if (!legacy) return;
-
-  const writes: Array<Promise<unknown>> = [];
-  for (const provider of SECRET_PROVIDERS) {
-    const value = legacy[`${provider}SecretKey`]?.trim();
-    if (!value) continue;
-    writes.push(
-      setDoc(
-        privateSecretDoc(provider),
-        { secretKey: value, updatedAt: serverTimestamp() },
-        { merge: true },
-      ),
-    );
-  }
-  await Promise.all(writes);
-
-  await setDoc(
-    settingsDoc(),
-    { paymentSecrets: deleteField() },
-    { merge: true },
-  );
+  // Explicit, backed-up migration is provided by scripts/migrate-store-data.mjs.
 }
 
-// Server-side only function to get payment secrets
 export async function getPaymentSecrets() {
-  const settings = await getAppSettings();
-  return settings?.paymentSecrets || {};
+  return {};
 }
 
 // Server-side only function to check if a payment provider is enabled
-export async function isPaymentProviderEnabled(provider: 'paystack' | 'korapay' | 'flutterwave'): Promise<boolean> {
+export async function isPaymentProviderEnabled(
+  provider: "paystack" | "korapay" | "flutterwave",
+): Promise<boolean> {
   const settings = await getAppSettings();
-  
+
   // Check Firestore first
   const firestoreEnabled = settings?.payments?.[`${provider}Enabled`];
   if (firestoreEnabled !== undefined) {
     return firestoreEnabled;
   }
-  
+
   // Fallback to environment variables during migration
   switch (provider) {
-    case 'paystack':
-      return process.env.NEXT_PUBLIC_ENABLE_PAYSTACK === 'true';
-    case 'korapay':
-      return process.env.NEXT_PUBLIC_ENABLE_KORAPAY === 'true';
-    case 'flutterwave':
-      return process.env.NEXT_PUBLIC_ENABLE_FLUTTERWAVE === 'true';
+    case "paystack":
+      return process.env.NEXT_PUBLIC_ENABLE_PAYSTACK === "true";
+    case "korapay":
+      return process.env.NEXT_PUBLIC_ENABLE_KORAPAY === "true";
+    case "flutterwave":
+      return process.env.NEXT_PUBLIC_ENABLE_FLUTTERWAVE === "true";
     default:
       return false;
   }
 }
 
 // Server-side only function to get payment secret key
-export async function getPaymentSecretKey(provider: 'paystack' | 'korapay' | 'flutterwave'): Promise<string | undefined> {
-  // 1. Write-only private collection (authoritative once configured).
+export async function getPaymentSecretKey(
+  provider: "paystack" | "korapay" | "flutterwave",
+): Promise<string | undefined> {
   if (typeof window === "undefined") {
-    try {
-      const { getAdminDb, isFirebaseAdminConfigured } = await import(
-        "@/lib/server/firebase-admin"
-      );
-      if (isFirebaseAdminConfigured()) {
-        const snap = await getAdminDb()
-          .collection("privatePaymentSettings")
-          .doc(provider)
-          .get();
-        const key = snap.data()?.secretKey;
-        if (typeof key === "string" && key.trim()) {
-          return key.trim();
-        }
-      }
-    } catch {
-      // Fall through to the legacy/env fallbacks below.
+    const { providerSecrets, deploymentEnv, legacyCredentialsAllowed } =
+      await import("@/lib/server/store-context");
+    const data = await providerSecrets(provider);
+    if (typeof data.secretKey === "string" && data.secretKey.trim())
+      return data.secretKey.trim();
+    // Legacy public secret fields are read only on the server, and only for ShopBeta.
+    if (legacyCredentialsAllowed()) {
+      const { getAdminDb } = await import("@/lib/server/firebase-admin");
+      const legacy = (
+        await getAdminDb().collection("settings").doc("app").get()
+      ).data()?.paymentSecrets?.[`${provider}SecretKey`];
+      if (typeof legacy === "string" && legacy.trim()) return legacy.trim();
     }
+    return deploymentEnv(`${provider.toUpperCase()}_SECRET_KEY`)?.trim();
   }
-
-  // 2. Legacy `settings/app.paymentSecrets` (migrated away on next admin save).
-  const secrets = await getPaymentSecrets();
-  const firestoreKey = secrets[`${provider}SecretKey`];
-  if (firestoreKey) {
-    return firestoreKey;
-  }
-  
-  // Fallback to environment variables during migration
-  switch (provider) {
-    case 'paystack':
-      return process.env.PAYSTACK_SECRET_KEY;
-    case 'korapay':
-      return process.env.KORAPAY_SECRET_KEY;
-    case 'flutterwave':
-      return process.env.FLUTTERWAVE_SECRET_KEY;
-    default:
-      return undefined;
-  }
+  throw new Error("Provider secrets are server-only.");
 }

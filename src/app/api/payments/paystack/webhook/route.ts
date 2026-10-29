@@ -1,34 +1,36 @@
-import { NextResponse } from "next/server";
-import {
-  mapPaystackStatus,
-  normalizePaystackVerification,
-  verifyPaystackTransaction,
-  verifyPaystackWebhookSignature,
-  amountsMatch,
-  type PaystackVerifyData,
-} from "@/lib/server/paystack";
-import {
-  finalizeCodCommitmentFee,
-  finalizeSuccessfulPayment,
-  markPaymentFailed,
-} from "@/lib/server/finalize-payment";
-import { computeCodCommitmentFee, COD_FEE_PURPOSE } from "@/lib/cod";
-import { notifyMakeOrderPaid } from "@/lib/server/make-webhook";
-import { paymentLog } from "@/lib/server/payment-log";
 import { COLLECTIONS } from "@/constants/collections";
+import { COD_FEE_PURPOSE, computeCodCommitmentFee } from "@/lib/cod";
+import { reportPaymentFailure } from "@/lib/monitoring";
 import {
   getPaystackFunctionsBaseUrl,
   isPaystackConfigured,
   isPaystackEnabled,
 } from "@/lib/server/env";
 import {
+  finalizeCodCommitmentFee,
+  finalizeSuccessfulPayment,
+  markPaymentFailed,
+} from "@/lib/server/finalize-payment";
+import {
   getAdminDb,
   isFirebaseAdminConfigured,
 } from "@/lib/server/firebase-admin";
-import { reportPaymentFailure } from "@/lib/monitoring";
+import { notifyMakeOrderPaid } from "@/lib/server/make-webhook";
+import { paymentLog } from "@/lib/server/payment-log";
+import {
+  amountsMatch,
+  mapPaystackStatus,
+  normalizePaystackVerification,
+  verifyPaystackTransaction,
+  verifyPaystackWebhookSignature,
+  type PaystackVerifyData,
+} from "@/lib/server/paystack";
 import { publicErrorMessage } from "@/lib/server/rate-limit";
-import { FieldValue } from "firebase-admin/firestore";
+import { currentStoreId } from "@/lib/server/store-context";
+import { withStoreRequest } from "@/lib/server/store-request";
 import type { Order } from "@/types/order";
+import { FieldValue } from "firebase-admin/firestore";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +54,11 @@ async function proxyWebhookToCloudFunction(
   rawBody: string,
   signature: string | null,
 ) {
+  if (currentStoreId() !== "shopbeta")
+    return NextResponse.json(
+      { ok: false, reason: "Store payment configuration unavailable." },
+      { status: 503 },
+    );
   const url = `${getPaystackFunctionsBaseUrl()}/paystackWebhook`;
   paymentLog("webhook.functions", "Proxying webhook to Cloud Function", {
     url,
@@ -74,12 +81,18 @@ async function proxyWebhookToCloudFunction(
   try {
     body = await response.json();
   } catch {
-    body = { ok: false, reason: "Cloud Function returned an invalid response." };
+    body = {
+      ok: false,
+      reason: "Cloud Function returned an invalid response.",
+    };
   }
 
   paymentLog("webhook.functions", "Cloud Function webhook response", {
     status: response.status,
-    ok: typeof body === "object" && body !== null && "ok" in body ? body.ok : null,
+    ok:
+      typeof body === "object" && body !== null && "ok" in body
+        ? body.ok
+        : null,
   });
 
   return NextResponse.json(body, { status: response.status });
@@ -89,7 +102,7 @@ async function proxyWebhookToCloudFunction(
  * Paystack webhook — production ready:
  * signature → verify with Paystack API → atomic Firestore → Make.com (best-effort).
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-paystack-signature");
 
@@ -101,11 +114,11 @@ export async function POST(request: Request) {
     paystackEnabled: isPaystackEnabled(),
   });
 
-  if (!isFirebaseAdminConfigured() || !isPaystackConfigured() || !isPaystackEnabled()) {
+  if (!isFirebaseAdminConfigured() || !(await isPaystackConfigured())) {
     return proxyWebhookToCloudFunction(rawBody, signature);
   }
 
-  if (!verifyPaystackWebhookSignature(rawBody, signature)) {
+  if (!(await verifyPaystackWebhookSignature(rawBody, signature))) {
     paymentLog("webhook.signature", "Invalid Paystack signature", {});
     reportPaymentFailure("Paystack webhook invalid signature");
     return NextResponse.json(
@@ -160,8 +173,7 @@ export async function POST(request: Request) {
     const paymentData = paymentDoc?.data();
     const paymentDocId = paymentDoc?.id;
     const orderId =
-      (paymentData?.orderId as string | undefined) ||
-      data.metadata?.orderId;
+      (paymentData?.orderId as string | undefined) || data.metadata?.orderId;
 
     if (!orderId) {
       paymentLog("webhook.ignored", "Order not found for reference", {
@@ -217,7 +229,10 @@ export async function POST(request: Request) {
         });
       }
 
-      const orderSnap = await db.collection(COLLECTIONS.orders).doc(orderId).get();
+      const orderSnap = await db
+        .collection(COLLECTIONS.orders)
+        .doc(orderId)
+        .get();
       if (!orderSnap.exists) {
         paymentLog("webhook.failure", "Order document missing", { orderId });
         return NextResponse.json({
@@ -426,4 +441,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    webhook: "paystack",
+  });
 }
