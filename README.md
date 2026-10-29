@@ -2,11 +2,11 @@
 
 Zenvexa's storefront and admin design on ShopBeta's Next.js/Firebase application. This replaces the previous TanStack/Lovable demo implementation.
 
-Both storefronts intentionally share the same Firebase project and collection paths: catalog, stock, accounts, orders, payments, coupons and settings. Changes to shared data from either admin affect both sites. Browser sessions and guest localStorage remain scoped to each domain.
+Products, inventory and Firebase authentication are shared. Store configuration, integration credentials, orders and operational records are store-scoped. See [store-scoping contract and rollout](docs/STORE-SCOPING.md), [validation](docs/STORE-SCOPING-VALIDATION.md), and the [ShopBeta handoff prompt](docs/SHOPBETA-HANDOFF-PROMPT.md).
 
 ## Local setup
 
-Requires Node.js 20 or newer and npm.
+Requires Node.js 20 or newer and npm. Guest checkout additionally requires Firebase Anonymous sign-in. Set matching `STORE_ID` and `NEXT_PUBLIC_STORE_ID` values as documented in the store-scoping rollout.
 
 ```sh
 npm ci

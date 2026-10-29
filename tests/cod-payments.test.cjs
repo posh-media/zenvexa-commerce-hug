@@ -1,9 +1,8 @@
+process.env.NEXT_PUBLIC_STORE_ID = "shopbeta";
+process.env.STORE_ID = "shopbeta";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const {
-  loader,
-  database,
-} = require("./payment-test-helpers.cjs");
+const { loader, database } = require("./payment-test-helpers.cjs");
 
 // Pure COD helpers — no mocks needed.
 const {
@@ -26,10 +25,10 @@ test("commitment fee is 25% of the total rounded up", () => {
 test("state names are trimmed and compared case-insensitively", () => {
   assert.equal(normalizeStateName("  Lagos  "), "lagos");
   assert.equal(normalizeStateName("Abuja  FCT"), "abuja fct");
-  assert.deepEqual(
-    normalizeAllowedStates([" Lagos ", "lagos", "ABUJA", ""]),
-    ["Lagos", "ABUJA"],
-  );
+  assert.deepEqual(normalizeAllowedStates([" Lagos ", "lagos", "ABUJA", ""]), [
+    "Lagos",
+    "ABUJA",
+  ]);
   assert.ok(isCodStateAllowed(["Lagos"], "LAGOS"));
   assert.ok(isCodStateAllowed([" Rivers State "], "rivers state"));
   assert.ok(!isCodStateAllowed(["Lagos"], "Kano"));
@@ -196,4 +195,33 @@ test("legacy COD orders without fee fields still confirm", async () => {
   assert.equal(result.ok, true);
   assert.equal(records.get("orders/o1").inventoryReserved, true);
   assert.equal(records.get("products/p1").stock, 8);
+});
+
+test("COD shared stock aggregates duplicate product lines and completes all reads before writes", async () => {
+  const { db, records } = database({
+    ...PRODUCTS,
+    "products/p2": { stock: 4, salesCount: 0 },
+    "orders/duplicates": {
+      ...COD_ORDER,
+      commitmentFeeStatus: "paid",
+      products: [
+        { productId: "p1", quantity: 2 },
+        { productId: "p1", quantity: 3 },
+        { productId: "p2", quantity: 1 },
+      ],
+      total: 10000,
+    },
+  });
+  const load = loader({
+    "@/lib/server/firebase-admin": { getAdminDb: () => db },
+    "firebase-admin/firestore": {
+      FieldValue: { serverTimestamp: () => "now" },
+    },
+  });
+  const result = await load(
+    "@/lib/server/finalize-payment",
+  ).finalizeCashOnDelivery("duplicates");
+  assert.equal(result.ok, true);
+  assert.equal(records.get("products/p1").stock, 5);
+  assert.equal(records.get("products/p2").stock, 3);
 });

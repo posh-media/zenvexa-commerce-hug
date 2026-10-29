@@ -1,13 +1,8 @@
 import type {
-
   OrderStatus,
-
   PaymentGateway,
-
   PaymentMethod,
-
   PaymentStatus,
-
 } from "@/constants/app";
 
 import type { FirestoreDate, Timestamps } from "./firestore";
@@ -16,16 +11,11 @@ import type { OrderTimelineEntry } from "./payment";
 
 import type { Address } from "./user";
 
-
-
 export type { OrderStatus, PaymentMethod, PaymentStatus };
 
 export type { OrderTimelineEntry };
 
-
-
 export type OrderItem = {
-
   productId: string;
 
   name?: string;
@@ -41,13 +31,9 @@ export type OrderItem = {
   quantity: number;
 
   lineTotal?: number;
-
 };
 
-
-
 export type OrderCustomer = {
-
   userId?: string;
 
   name?: string;
@@ -55,13 +41,9 @@ export type OrderCustomer = {
   email?: string;
 
   phone?: string;
-
 };
 
-
-
 export type OrderTotals = {
-
   subtotal?: number;
 
   discount?: number;
@@ -73,14 +55,13 @@ export type OrderTotals = {
   tax?: number;
 
   total?: number;
-
 };
-
-
 
 /** `orders` collection document. */
 
 export type OrderDocument = Timestamps & {
+  storeId?: "shopbeta" | "zenvexa";
+  storeName?: string;
 
   orderNumber?: string;
 
@@ -184,11 +165,6 @@ export type OrderDocument = Timestamps & {
 
   /** Make.com notification attempt timestamp */
   makeNotifyAttemptedAt?: unknown;
-
 };
 
-
-
 export type Order = OrderDocument & { id: string };
-
-

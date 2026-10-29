@@ -41,6 +41,8 @@ export type SocialLinks = {
 
 /** Singleton `settings/app` document. */
 export type AppSettingsDocument = {
+  storeId?: "shopbeta" | "zenvexa";
+
   currencies?: CurrencyOption[];
   deliveryOptions?: DeliveryOption[];
   supportedCountries?: string[];
@@ -57,6 +59,8 @@ export type AppSettingsDocument = {
     paystackEnabled?: boolean;
     korapayEnabled?: boolean;
     flutterwaveEnabled?: boolean;
+    bachsEnabled?: boolean;
+    bachsSandbox?: boolean;
     paystackPublicKeyHint?: string;
     /** States/regions where Payment on Delivery is allowed. */
     paymentOnDeliveryAllowedStates?: string[];

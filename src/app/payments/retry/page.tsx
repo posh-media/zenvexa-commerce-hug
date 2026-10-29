@@ -13,6 +13,7 @@ import {
   initializeKorapayPayment,
   initializeSquadPayment,
   initializeMonnifyPayment,
+  initializeBachsPayment,
   getPaymentProviderSettings,
   type CodFeeGateway
 } from "@/services/payments.service";
@@ -35,6 +36,7 @@ function PaymentRetryContent() {
     paystack: boolean;
     korapay: boolean;
     flutterwave: boolean;
+    bachs: boolean;
     cod: boolean;
   } | null>(null);
 
@@ -74,7 +76,7 @@ function PaymentRetryContent() {
           if (String(found.paymentMethod ?? "") === "cash-on-delivery") {
             // COD orders retry the 25% commitment fee, not the full total.
             const prev = String(found.paymentGateway ?? "");
-            if (["paystack", "korapay", "squad", "monnify"].includes(prev)) {
+            if (["paystack", "korapay", "squad", "monnify", "bachs"].includes(prev)) {
               setSelectedProvider(prev);
             } else if (settings.paystack) {
               setSelectedProvider("paystack");
@@ -84,7 +86,12 @@ function PaymentRetryContent() {
               setSelectedProvider("squad");
             } else if (settings.monnify) {
               setSelectedProvider("monnify");
+            } else if (settings.bachs) {
+              setSelectedProvider("bachs");
             }
+          } else if (found.paymentMethod === "bachs") {
+            if (settings.bachs) setSelectedProvider("bachs");
+            else setError("Bachs is currently unavailable. Please contact support about this order.");
           } else if (found.paymentMethod === "monnify") {
             if (settings.monnify) setSelectedProvider("monnify");
             else setError("Monnify is currently unavailable. Please contact support about this order.");
@@ -122,7 +129,7 @@ function PaymentRetryContent() {
       let init;
       
       if (isCodFee) {
-        if (!["paystack", "korapay", "squad", "monnify"].includes(selectedProvider)) {
+        if (!["paystack", "korapay", "squad", "monnify", "bachs"].includes(selectedProvider)) {
           setError("Select an online payment method for the commitment fee.");
           setSubmitting(false);
           return;
@@ -131,6 +138,8 @@ function PaymentRetryContent() {
           orderId: order.id,
           gateway: selectedProvider as CodFeeGateway,
         });
+      } else if (selectedProvider === "bachs") {
+        init = await initializeBachsPayment({ orderId: order.id });
       } else if (selectedProvider === "monnify") {
         init = await initializeMonnifyPayment({ orderId: order.id });
       } else if (selectedProvider === "squad") {
@@ -158,6 +167,7 @@ function PaymentRetryContent() {
       }
       
       const providerName = selectedProvider === "monnify" ? "Monnify" : selectedProvider === "squad" ? "Squad" : selectedProvider === "paystack" ? "Paystack" :
+                          selectedProvider === "bachs" ? "Bachs" :
                           selectedProvider === "korapay" ? "KoraPay" : 
                           selectedProvider === "flutterwave" ? "Flutterwave" : "payment";
       toastSuccess(`Redirecting to ${providerName}`);
@@ -238,7 +248,7 @@ function PaymentRetryContent() {
               <div className="space-y-3">
                 <p className="text-[13px] font-medium text-ink">Payment method</p>
                 <div className="space-y-2">
-                  {providers.paystack && !["squad", "monnify"].includes(order?.paymentMethod ?? "") && (
+                  {providers.paystack && !["squad", "monnify", "bachs"].includes(order?.paymentMethod ?? "") && (
                     <label className="flex items-center gap-2">
                       <input
                         type="radio"
@@ -251,7 +261,7 @@ function PaymentRetryContent() {
                       <span className="text-[13px]">Paystack</span>
                     </label>
                   )}
-                  {providers.korapay && !["squad", "monnify"].includes(order?.paymentMethod ?? "") && (
+                  {providers.korapay && !["squad", "monnify", "bachs"].includes(order?.paymentMethod ?? "") && (
                     <label className="flex items-center gap-2">
                       <input
                         type="radio"
@@ -273,6 +283,15 @@ function PaymentRetryContent() {
                       <span className="text-[13px]">Squad by GTBank</span>
                     </label>
                   )}
+                  {providers.bachs && (order?.paymentMethod === "bachs" || order?.paymentMethod === "cash-on-delivery") && (
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="provider" value="bachs"
+                        checked={selectedProvider === "bachs"}
+                        onChange={(e) => setSelectedProvider(e.target.value)}
+                        className="h-4 w-4 text-primary" />
+                      <span className="text-[13px]">Bachs</span>
+                    </label>
+                  )}
                   {providers.monnify && (order?.paymentMethod === "monnify" || order?.paymentMethod === "cash-on-delivery") && (
                     <label className="flex items-center gap-2">
                       <input type="radio" name="provider" value="monnify"
@@ -282,7 +301,7 @@ function PaymentRetryContent() {
                       <span className="text-[13px]">Monnify</span>
                     </label>
                   )}
-                  {providers.flutterwave && !["squad", "monnify", "cash-on-delivery"].includes(order?.paymentMethod ?? "") && (
+                  {providers.flutterwave && !["squad", "monnify", "bachs", "cash-on-delivery"].includes(order?.paymentMethod ?? "") && (
                     <label className="flex items-center gap-2">
                       <input
                         type="radio"
@@ -295,7 +314,7 @@ function PaymentRetryContent() {
                       <span className="text-[13px]">Flutterwave</span>
                     </label>
                   )}
-                  {providers.cod && !["squad", "monnify", "cash-on-delivery"].includes(order?.paymentMethod ?? "") && (
+                  {providers.cod && !["squad", "monnify", "bachs", "cash-on-delivery"].includes(order?.paymentMethod ?? "") && (
                     <label className="flex items-center gap-2">
                       <input
                         type="radio"
@@ -326,6 +345,8 @@ function PaymentRetryContent() {
                     ? "Pay with Squad"
                     : selectedProvider === "monnify"
                       ? "Pay with Monnify"
+                    : selectedProvider === "bachs"
+                      ? "Pay with Bachs"
                   : selectedProvider === "paystack"
                     ? "Pay with Paystack"
                     : selectedProvider === "korapay"

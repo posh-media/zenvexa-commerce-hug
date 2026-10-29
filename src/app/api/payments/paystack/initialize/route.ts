@@ -1,18 +1,20 @@
-import { NextResponse } from "next/server";
-import { initializePaystackBodySchema } from "@/schemas/payment.schema";
-import { initializePaystackForOrder } from "@/lib/server/payment-service";
 import { reportPaymentFailure } from "@/lib/monitoring";
-import {
-  clientKeyFromRequest,
-  publicErrorMessage,
-  rateLimit,
-} from "@/lib/server/rate-limit";
 import {
   getPaystackFunctionsBaseUrl,
   isPaystackConfigured,
 } from "@/lib/server/env";
 import { isFirebaseAdminConfigured } from "@/lib/server/firebase-admin";
 import { paymentLog } from "@/lib/server/payment-log";
+import { initializePaystackForOrder } from "@/lib/server/payment-service";
+import {
+  clientKeyFromRequest,
+  publicErrorMessage,
+  rateLimit,
+} from "@/lib/server/rate-limit";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { deploymentStoreId } from "@/lib/store";
+import { initializePaystackBodySchema } from "@/schemas/payment.schema";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +35,11 @@ async function initializeViaCloudFunction(input: {
   orderId: string;
   callbackUrl?: string;
 }): Promise<InitOk | InitFail> {
+  if (deploymentStoreId() !== "shopbeta")
+    return {
+      ok: false,
+      reason: "Server payment configuration is required for this store.",
+    };
   const url = `${getPaystackFunctionsBaseUrl()}/paystackInitialize`;
   paymentLog("init.functions", "Proxying initialize to Cloud Function", {
     url,
@@ -71,7 +78,7 @@ async function initializeViaCloudFunction(input: {
   return body;
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "paystack-init"),
     limit: 20,
@@ -119,10 +126,14 @@ export async function POST(request: Request) {
           callbackUrl: parsed.data.callbackUrl,
         });
       } catch (error) {
-        paymentLog("init.failure", "Admin initialize threw — falling back to CF", {
-          orderId: parsed.data.orderId,
-          message: error instanceof Error ? error.message : "unknown",
-        });
+        paymentLog(
+          "init.failure",
+          "Admin initialize threw — falling back to CF",
+          {
+            orderId: parsed.data.orderId,
+            message: error instanceof Error ? error.message : "unknown",
+          },
+        );
         result = await initializeViaCloudFunction({
           orderId: parsed.data.orderId,
           callbackUrl: parsed.data.callbackUrl,
@@ -186,4 +197,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    initialize: true,
+  });
 }

@@ -1,13 +1,14 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
+import { isFirebaseAdminConfigured } from "@/lib/server/firebase-admin";
 import { initializeMonnifyForOrder } from "@/lib/server/monnify-payment-service";
 import { clientKeyFromRequest, rateLimit } from "@/lib/server/rate-limit";
-import { isFirebaseAdminConfigured } from "@/lib/server/firebase-admin";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "monnify-init"),
     limit: 20,
@@ -51,4 +52,10 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    initialize: true,
+  });
 }

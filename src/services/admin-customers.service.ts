@@ -1,15 +1,15 @@
+import { USER_ROLES, type UserRole, type UserStatus } from "@/constants/app";
+import { userDoc, usersCollection } from "@/firebase/collections";
+import { listOrdersAdmin } from "@/services/admin-orders.service";
+import { writeAuditLog } from "@/services/audit.service";
+import type { UserProfile } from "@/types/user";
+import { stripUndefined } from "@/utils/firestore";
 import {
   getDoc,
   getDocs,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { userDoc, usersCollection } from "@/firebase/collections";
-import { listOrdersAdmin } from "@/services/admin-orders.service";
-import { writeAuditLog } from "@/services/audit.service";
-import type { UserProfile } from "@/types/user";
-import { USER_ROLES, type UserRole, type UserStatus } from "@/constants/app";
-import { stripUndefined } from "@/utils/firestore";
 
 type Actor = { id: string; email?: string };
 
@@ -36,15 +36,17 @@ export async function listCustomersAdmin(): Promise<AdminCustomerRow[]> {
     spendByUser.set(uid, entry);
   }
 
-  return usersSnap.docs.map((document) => {
-    const profile = document.data();
-    const stats = spendByUser.get(profile.id) ?? { count: 0, total: 0 };
-    return {
-      ...profile,
-      orderCount: stats.count,
-      totalSpent: stats.total,
-    };
-  });
+  return usersSnap.docs
+    .filter((document) => spendByUser.has(document.id))
+    .map((document) => {
+      const profile = document.data();
+      const stats = spendByUser.get(profile.id) ?? { count: 0, total: 0 };
+      return {
+        ...profile,
+        orderCount: stats.count,
+        totalSpent: stats.total,
+      };
+    });
 }
 
 export async function setCustomerStatusAdmin(
@@ -77,7 +79,9 @@ export async function setUserRoleAdmin(
   actor: Actor,
 ) {
   if (userId === actor.id && role === "customer") {
-    throw new Error("You cannot remove your own admin access from this screen.");
+    throw new Error(
+      "You cannot remove your own admin access from this screen.",
+    );
   }
 
   const allowed: readonly string[] = USER_ROLES;

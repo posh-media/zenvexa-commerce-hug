@@ -1,3 +1,4 @@
+const { legacyInitializeAllowed } = require("./store-routing");
 /**
  * KoraPay Initialize Cloud Function
  * Handles KoraPay payment initialization for orders
@@ -28,7 +29,7 @@ async function korapayFetch(path, init) {
   if (!response.ok || !body.status) {
     throw new HttpsError(
       "internal",
-      body.message || `KoraPay error (${response.status})`
+      body.message || `KoraPay error (${response.status})`,
     );
   }
   return body;
@@ -40,6 +41,11 @@ function paymentReferenceForOrder(order) {
 }
 
 exports.korapayInitialize = onCall(async (request) => {
+  if (!(await legacyInitializeAllowed(request.data?.orderId)))
+    throw new HttpsError(
+      "permission-denied",
+      "Use the originating store payment endpoint.",
+    );
   const { orderId, callbackUrl } = request.data;
 
   if (!getKorapaySecretKey()) {
@@ -62,7 +68,10 @@ exports.korapayInitialize = onCall(async (request) => {
   const method = String(order.paymentMethod ?? "");
 
   if (method !== "korapay") {
-    throw new HttpsError("failed-precondition", "This order is not set up for KoraPay");
+    throw new HttpsError(
+      "failed-precondition",
+      "This order is not set up for KoraPay",
+    );
   }
 
   if (order.paymentStatus === "paid") {
@@ -71,7 +80,10 @@ exports.korapayInitialize = onCall(async (request) => {
 
   const email = order.customer?.email?.trim();
   if (!email) {
-    throw new HttpsError("failed-precondition", "Order is missing a customer email");
+    throw new HttpsError(
+      "failed-precondition",
+      "Order is missing a customer email",
+    );
   }
 
   const amount = Number(order.total ?? order.totals?.total ?? 0);
@@ -119,7 +131,7 @@ exports.korapayInitialize = onCall(async (request) => {
         customerEmail: email,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-      })
+      }),
     );
 
     await orderRef.update(
@@ -129,7 +141,7 @@ exports.korapayInitialize = onCall(async (request) => {
         paymentReference: initialized.data.reference,
         paymentId: paymentRef.id,
         updatedAt: FieldValue.serverTimestamp(),
-      })
+      }),
     );
 
     return {

@@ -5,6 +5,8 @@ export type ExpenseType = (typeof EXPENSE_TYPES)[number];
 
 /** Expense record (advertising or other business expense) */
 export type AdDocument = {
+  storeId?: "shopbeta" | "zenvexa";
+
   /** Missing on legacy records — treat as "ads". */
   type?: ExpenseType;
   platform: string;

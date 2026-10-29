@@ -1,26 +1,26 @@
 import {
+  notificationDoc,
+  notificationsCollection,
+} from "@/firebase/collections";
+import { getDb } from "@/firebase/firestore";
+import { belongsToStore } from "@/lib/store";
+import { storeDocuments } from "@/lib/store-queries";
+import type { AppNotification } from "@/types/commerce";
+import {
   deleteDoc,
   getDoc,
-  getDocs,
-  query,
   updateDoc,
   where,
   writeBatch,
 } from "firebase/firestore";
-import { getDb } from "@/firebase/firestore";
-import {
-  notificationDoc,
-  notificationsCollection,
-} from "@/firebase/collections";
-import type { AppNotification } from "@/types/commerce";
 
 export async function listNotificationsByUser(
   userId: string,
 ): Promise<AppNotification[]> {
-  const snapshot = await getDocs(
-    query(notificationsCollection(), where("userId", "==", userId)),
-  );
-  return snapshot.docs
+  const documents = await storeDocuments(notificationsCollection(), [
+    where("userId", "==", userId),
+  ]);
+  return documents
     .map((document) => document.data())
     .sort((a, b) => {
       const aTime =
@@ -43,10 +43,13 @@ export async function getNotification(
   id: string,
 ): Promise<AppNotification | undefined> {
   const snapshot = await getDoc(notificationDoc(id));
-  return snapshot.exists() ? snapshot.data() : undefined;
+  return snapshot.exists() && belongsToStore(snapshot.data())
+    ? snapshot.data()
+    : undefined;
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
+  if (!(await getNotification(id))) throw new Error("Notification not found.");
   await updateDoc(notificationDoc(id), { read: true });
 }
 
@@ -62,5 +65,6 @@ export async function markAllNotificationsRead(userId: string): Promise<void> {
 }
 
 export async function deleteNotification(id: string): Promise<void> {
+  if (!(await getNotification(id))) throw new Error("Notification not found.");
   await deleteDoc(notificationDoc(id));
 }

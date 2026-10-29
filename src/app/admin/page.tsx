@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
-import { AdminPageHeader, StatCard, AdminTable } from "@/components/admin/admin-ui";
+import {
+  AdminPageHeader,
+  StatCard,
+  AdminTable,
+} from "@/components/admin/admin-ui";
 import { ButtonLink, IconButton } from "@/components/ui/button";
 import {
   getAdminDashboardStats,
@@ -32,7 +36,10 @@ function endOfDay(d: Date) {
  * `undefined` = all time. Uses the app's local timezone, matching the
  * existing dashboard's date handling.
  */
-function computeRange(key: RangeKey, specificDate: string): DashboardRange | undefined {
+function computeRange(
+  key: RangeKey,
+  specificDate: string,
+): DashboardRange | undefined {
   const now = new Date();
   switch (key) {
     case "all":
@@ -77,17 +84,30 @@ const RANGE_LABELS: Record<RangeKey, string> = {
 };
 
 function formatOrderDate(date: Date): string {
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   const month = months[date.getMonth()];
   const day = date.getDate();
   const year = date.getFullYear();
-  
+
   const hours = date.getHours();
   const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const ampm = hours >= 12 ? "PM" : "AM";
   const hours12 = hours % 12 || 12;
-  const minutesStr = minutes.toString().padStart(2, '0');
-  
+  const minutesStr = minutes.toString().padStart(2, "0");
+
   return `${month} ${day}, ${year} • ${hours12}:${minutesStr} ${ampm}`;
 }
 
@@ -116,18 +136,21 @@ export default function AdminDashboardPage() {
     return RANGE_LABELS[rangeKey];
   }, [rangeKey, specificDate]);
 
-  const load = useCallback(async (r?: DashboardRange) => {
-    if (refreshing) return;
-    setRefreshing(true);
-    try {
-      setStats(await getAdminDashboardStats(r));
-      setError(null);
-    } catch {
-      setError("Could not load dashboard statistics.");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refreshing]);
+  const load = useCallback(
+    async (r?: DashboardRange) => {
+      if (refreshing) return;
+      setRefreshing(true);
+      try {
+        setStats(await getAdminDashboardStats(r));
+        setError(null);
+      } catch {
+        setError("Could not load dashboard statistics.");
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [refreshing],
+  );
 
   useEffect(() => {
     void load(range);
@@ -204,23 +227,37 @@ export default function AdminDashboardPage() {
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard 
-              label={`Revenue · ${rangeLabel}`} 
-              value={stats.totalRevenueLabel} 
-              secondaryValue={rangeKey === "all" ? stats.todayRevenueLabel : undefined}
+            <StatCard
+              label={`Revenue · ${rangeLabel}`}
+              value={stats.totalRevenueLabel}
+              secondaryValue={
+                rangeKey === "all" ? stats.todayRevenueLabel : undefined
+              }
             />
-            <StatCard 
-              label={`Orders · ${rangeLabel}`} 
-              value={stats.rangeOrders} 
-              secondaryValue={rangeKey === "all" ? `+${stats.ordersToday} today` : undefined}
+            <StatCard
+              label={`Orders · ${rangeLabel}`}
+              value={stats.rangeOrders}
+              secondaryValue={
+                rangeKey === "all" ? `+${stats.ordersToday} today` : undefined
+              }
             />
-            <StatCard 
-              label={`Paid orders · ${rangeLabel}`} 
-              value={stats.paidOrders} 
-              secondaryValue={rangeKey === "all" ? `+${stats.todayPaidOrders} today` : undefined}
+            <StatCard
+              label={`Paid orders · ${rangeLabel}`}
+              value={stats.paidOrders}
+              secondaryValue={
+                rangeKey === "all"
+                  ? `+${stats.todayPaidOrders} today`
+                  : undefined
+              }
             />
-            <StatCard label={`Pending orders · ${rangeLabel}`} value={stats.pendingOrders} />
-            <StatCard label={`Cancelled · ${rangeLabel}`} value={stats.cancelledOrders} />
+            <StatCard
+              label={`Pending orders · ${rangeLabel}`}
+              value={stats.pendingOrders}
+            />
+            <StatCard
+              label={`Cancelled · ${rangeLabel}`}
+              value={stats.cancelledOrders}
+            />
             <StatCard
               label={`Ads expenses · ${rangeLabel}`}
               value={stats.totalAdsExpensesLabel}
@@ -233,24 +270,35 @@ export default function AdminDashboardPage() {
             <StatCard
               label={`Website visits · ${rangeLabel}`}
               value={stats.rangeVisits}
-              secondaryValue={rangeKey === "all" ? `+${stats.todayVisits} today` : undefined}
+              secondaryValue={
+                rangeKey === "all" ? `+${stats.todayVisits} today` : undefined
+              }
             />
-            <StatCard 
-              label="Products (all time)" 
-              value={stats.products} 
+            <StatCard
+              label="Products (shared catalog)"
+              value={stats.products}
               secondaryValue={`-${stats.archivedProducts} (archived)`}
             />
-            <StatCard label="Categories (all time)" value={stats.categories} />
-            <StatCard label="Brands (all time)" value={stats.brands} />
+            <StatCard
+              label="Categories (shared catalog)"
+              value={stats.categories}
+            />
+            <StatCard label="Brands (shared catalog)" value={stats.brands} />
             <StatCard label="Customers (all time)" value={stats.customers} />
             <StatCard label="Coupons (all time)" value={stats.coupons} />
-            <StatCard label="Notifications (all time)" value={stats.notifications} />
             <StatCard
-              label="Low stock (all time)"
+              label="Notifications (all time)"
+              value={stats.notifications}
+            />
+            <StatCard
+              label="Low stock (shared inventory)"
               value={stats.lowStock}
               hint="At or below threshold"
             />
-            <StatCard label="Out of stock (all time)" value={stats.outOfStock} />
+            <StatCard
+              label="Out of stock (shared inventory)"
+              value={stats.outOfStock}
+            />
           </div>
 
           <div className="mt-8 grid gap-6 xl:grid-cols-2">
@@ -258,7 +306,9 @@ export default function AdminDashboardPage() {
               <h2 className="mb-3 text-sm font-semibold text-ink">
                 Recent orders
               </h2>
-              <AdminTable headers={["Order", "Customer", "Total", "Status", "Date"]}>
+              <AdminTable
+                headers={["Order", "Customer", "Total", "Status", "Date"]}
+              >
                 {stats.recentOrders.map((order) => (
                   <tr key={order.id} className="text-[13px]">
                     <td className="px-4 py-3">
@@ -279,26 +329,25 @@ export default function AdminDashboardPage() {
                       {order.orderStatus ?? order.status ?? "pending"}
                     </td>
                     <td className="px-4 py-3 text-muted">
-                      {order.createdAt ? (
-                        order.createdAt instanceof Date ? (
-                          formatOrderDate(order.createdAt)
-                        ) : typeof order.createdAt === 'object' && 'toDate' in order.createdAt ? (
-                          formatOrderDate((order.createdAt as { toDate: () => Date }).toDate())
-                        ) : (
-                          "—"
-                        )
-                      ) : (
-                        "—"
-                      )}
+                      {order.createdAt
+                        ? order.createdAt instanceof Date
+                          ? formatOrderDate(order.createdAt)
+                          : typeof order.createdAt === "object" &&
+                              "toDate" in order.createdAt
+                            ? formatOrderDate(
+                                (
+                                  order.createdAt as { toDate: () => Date }
+                                ).toDate(),
+                              )
+                            : "—"
+                        : "—"}
                     </td>
                   </tr>
                 ))}
               </AdminTable>
             </div>
             <div>
-              <h2 className="mb-3 text-sm font-semibold text-ink">
-                Top pages
-              </h2>
+              <h2 className="mb-3 text-sm font-semibold text-ink">Top pages</h2>
               <AdminTable headers={["Page", "Visits"]}>
                 {stats.topPages.map((page) => (
                   <tr key={page.path} className="text-[13px]">

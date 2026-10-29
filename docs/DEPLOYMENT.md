@@ -1,3 +1,5 @@
+> Historical storefront migration notes. For the newer store-specific configuration release, follow [STORE-SCOPING.md](STORE-SCOPING.md); it supersedes the earlier shared-settings and storefront-only deployment assumptions.
+
 # Vercel deployment: zenvexacommerce.com
 
 The existing Zenvexa Vercel project should deploy the `posh-media/zenvexa-commerce-hug` repository after the migration branch is reviewed and merged. `vercel.json` explicitly selects Next.js, `npm ci`, `npm run build` and `.next`; remove any conflicting Vite/TanStack overrides in the project settings.

@@ -1,3 +1,5 @@
+> Historical storefront migration notes. For the newer store-specific configuration release, follow [STORE-SCOPING.md](STORE-SCOPING.md); it supersedes the earlier shared-settings and storefront-only deployment assumptions.
+
 # Integration notes
 
 ## Accepted scope

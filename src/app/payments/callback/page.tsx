@@ -6,7 +6,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { verifyPaystackPayment, verifyKorapayPayment, verifySquadPayment, verifyMonnifyPayment } from "@/services/payments.service";
+import { verifyPaystackPayment, verifyKorapayPayment, verifySquadPayment, verifyMonnifyPayment, verifyBachsPayment } from "@/services/payments.service";
 import {
   getOrderByNumber,
   watchOrderUntilPaid,
@@ -50,13 +50,16 @@ function PaymentCallbackContent() {
     });
     
     try {
-      // Route Squad and Monnify directly; preserve Paystack/KoraPay fallback for existing callbacks.
-      let result = searchParams.get("provider") === "squad"
+      // Route Squad, Monnify and Bachs directly; preserve Paystack/KoraPay fallback for existing callbacks.
+      const providerParam = searchParams.get("provider") ?? "";
+      let result = providerParam === "squad"
         ? await verifySquadPayment(reference)
-        : searchParams.get("provider") === "monnify"
+        : providerParam === "monnify"
           ? await verifyMonnifyPayment(reference)
+          : providerParam === "bachs"
+            ? await verifyBachsPayment(reference)
         : await verifyPaystackPayment(reference);
-      if (!result.ok && !["squad", "monnify"].includes(searchParams.get("provider") ?? "")) {
+      if (!result.ok && !["squad", "monnify", "bachs"].includes(providerParam)) {
         clientLog("manual_verify.paystack_failed", "Paystack verification failed", {
           reference,
           reason: result.reason,
@@ -164,13 +167,16 @@ function PaymentCallbackContent() {
         setMessage("Verifying payment…");
         try {
           clientLog("callback.verify", "Calling verify API", { reference });
-          // Route Squad and Monnify directly; preserve Paystack/KoraPay fallback for existing callbacks.
-          let result = searchParams.get("provider") === "squad"
+          // Route Squad, Monnify and Bachs directly; preserve Paystack/KoraPay fallback for existing callbacks.
+          const providerParam = searchParams.get("provider") ?? "";
+          let result = providerParam === "squad"
             ? await verifySquadPayment(reference)
-            : searchParams.get("provider") === "monnify"
+            : providerParam === "monnify"
               ? await verifyMonnifyPayment(reference)
+              : providerParam === "bachs"
+                ? await verifyBachsPayment(reference)
               : await verifyPaystackPayment(reference);
-          if (!result.ok && !["squad", "monnify"].includes(searchParams.get("provider") ?? "")) {
+          if (!result.ok && !["squad", "monnify", "bachs"].includes(providerParam)) {
             // Try KoraPay if Paystack fails
             try {
               result = await verifyKorapayPayment(reference);
@@ -236,12 +242,15 @@ function PaymentCallbackContent() {
       // 3) One more verify attempt if we have a reference.
       if (reference) {
         try {
-          let result = searchParams.get("provider") === "monnify"
+          const providerParam = searchParams.get("provider") ?? "";
+          let result = providerParam === "monnify"
             ? await verifyMonnifyPayment(reference)
-            : searchParams.get("provider") === "squad"
+            : providerParam === "squad"
               ? await verifySquadPayment(reference)
+              : providerParam === "bachs"
+                ? await verifyBachsPayment(reference)
               : await verifyPaystackPayment(reference);
-          if (!result.ok && !["squad", "monnify"].includes(searchParams.get("provider") ?? "")) {
+          if (!result.ok && !["squad", "monnify", "bachs"].includes(providerParam)) {
             try {
               result = await verifyKorapayPayment(reference);
             } catch {

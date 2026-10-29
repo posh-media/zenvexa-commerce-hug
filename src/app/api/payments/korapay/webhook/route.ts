@@ -1,30 +1,31 @@
-import { NextResponse } from "next/server";
-import {
-  mapKorapayStatus,
-  normalizeKorapayVerification,
-  verifyKorapayTransaction,
-  verifyKorapayWebhookSignature,
-  amountsMatch,
-  type KorapayVerifyData,
-} from "@/lib/server/korapay";
+import { COLLECTIONS } from "@/constants/collections";
+import { COD_FEE_PURPOSE, computeCodCommitmentFee } from "@/lib/cod";
+import { reportPaymentFailure } from "@/lib/monitoring";
+import { isKorapayConfigured, isKorapayEnabled } from "@/lib/server/env";
 import {
   finalizeCodCommitmentFee,
   finalizeSuccessfulPayment,
   markPaymentFailed,
 } from "@/lib/server/finalize-payment";
-import { computeCodCommitmentFee, COD_FEE_PURPOSE } from "@/lib/cod";
-import { notifyMakeOrderPaid } from "@/lib/server/make-webhook";
-import { paymentLog } from "@/lib/server/payment-log";
-import { COLLECTIONS } from "@/constants/collections";
-import { isKorapayConfigured, isKorapayEnabled } from "@/lib/server/env";
 import {
   getAdminDb,
   isFirebaseAdminConfigured,
 } from "@/lib/server/firebase-admin";
-import { reportPaymentFailure } from "@/lib/monitoring";
+import {
+  amountsMatch,
+  mapKorapayStatus,
+  normalizeKorapayVerification,
+  verifyKorapayTransaction,
+  verifyKorapayWebhookSignature,
+  type KorapayVerifyData,
+} from "@/lib/server/korapay";
+import { notifyMakeOrderPaid } from "@/lib/server/make-webhook";
+import { paymentLog } from "@/lib/server/payment-log";
 import { publicErrorMessage } from "@/lib/server/rate-limit";
-import { FieldValue } from "firebase-admin/firestore";
+import { withStoreRequest } from "@/lib/server/store-request";
 import type { Order } from "@/types/order";
+import { FieldValue } from "firebase-admin/firestore";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ const SUPPORTED = new Set([
  * KoraPay webhook — production ready:
  * signature → verify with KoraPay API → atomic Firestore → Make.com (best-effort).
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-korapay-signature");
 
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
     korapayEnabled: isKorapayEnabled(),
   });
 
-  if (!isFirebaseAdminConfigured() || !isKorapayConfigured() || !isKorapayEnabled()) {
+  if (!isFirebaseAdminConfigured() || !(await isKorapayConfigured())) {
     paymentLog("webhook.failure", "KoraPay not configured", {});
     return NextResponse.json(
       { ok: false, reason: "KoraPay is not configured." },
@@ -79,7 +80,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!verifyKorapayWebhookSignature(payload, signature)) {
+  if (!(await verifyKorapayWebhookSignature(payload, signature))) {
     paymentLog("webhook.signature", "Invalid KoraPay signature", {});
     reportPaymentFailure("KoraPay webhook invalid signature");
     return NextResponse.json(
@@ -123,8 +124,7 @@ export async function POST(request: Request) {
     const paymentData = paymentDoc?.data();
     const paymentDocId = paymentDoc?.id;
     const orderId =
-      (paymentData?.orderId as string | undefined) ||
-      data.metadata?.orderId;
+      (paymentData?.orderId as string | undefined) || data.metadata?.orderId;
 
     if (!orderId) {
       paymentLog("webhook.ignored", "Order not found for reference", {
@@ -180,7 +180,10 @@ export async function POST(request: Request) {
         });
       }
 
-      const orderSnap = await db.collection(COLLECTIONS.orders).doc(orderId).get();
+      const orderSnap = await db
+        .collection(COLLECTIONS.orders)
+        .doc(orderId)
+        .get();
       if (!orderSnap.exists) {
         paymentLog("webhook.failure", "Order document missing", { orderId });
         return NextResponse.json({
@@ -389,4 +392,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    webhook: "korapay",
+  });
 }

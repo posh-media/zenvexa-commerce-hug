@@ -1,20 +1,19 @@
+import { stockStatusFromCount } from "@/constants/app";
+import { COLLECTIONS } from "@/constants/collections";
+import { COD_FEE_PURPOSE, computeCodCommitmentFee } from "@/lib/cod";
+import { toKobo } from "@/lib/server/env";
+import { getAdminDb } from "@/lib/server/firebase-admin";
+import { appendTimelineAdmin } from "@/lib/server/order-timeline";
+import { currentStoreId } from "@/lib/server/store-context";
+import { recordStoreId } from "@/lib/store";
+import type { Order, OrderItem, PaymentStatus } from "@/types/order";
+import type { NormalizedPaymentResult, PaymentDocument } from "@/types/payment";
+import { stripUndefined } from "@/utils/firestore";
 import {
   FieldValue,
   type DocumentData,
   type DocumentReference,
 } from "firebase-admin/firestore";
-import { stockStatusFromCount } from "@/constants/app";
-import { COLLECTIONS } from "@/constants/collections";
-import { getAdminDb } from "@/lib/server/firebase-admin";
-import { appendTimelineAdmin } from "@/lib/server/order-timeline";
-import { computeCodCommitmentFee, COD_FEE_PURPOSE } from "@/lib/cod";
-import { toKobo } from "@/lib/server/env";
-import type { Order, OrderItem, PaymentStatus } from "@/types/order";
-import type {
-  NormalizedPaymentResult,
-  PaymentDocument,
-} from "@/types/payment";
-import { stripUndefined } from "@/utils/firestore";
 
 export type FinalizeResult =
   | { ok: true; order: Order; alreadyProcessed: boolean }
@@ -22,6 +21,22 @@ export type FinalizeResult =
 
 function asOrder(id: string, data: DocumentData): Order {
   return { id, ...(data as Omit<Order, "id">) };
+}
+
+/** Shared stock is aggregated by product ID even when a cart has multiple variants/lines. */
+function inventoryLines(order: Order): OrderItem[] {
+  const grouped = new Map<string, OrderItem>();
+  for (const line of order.products ?? order.items ?? []) {
+    const quantity = Number(line.quantity);
+    if (!Number.isSafeInteger(quantity) || quantity <= 0)
+      throw new Error("Invalid order quantity.");
+    const previous = grouped.get(line.productId);
+    grouped.set(line.productId, {
+      ...line,
+      quantity: (previous?.quantity ?? 0) + quantity,
+    });
+  }
+  return Array.from(grouped.values());
 }
 
 async function findPaymentRefByReference(reference: string) {
@@ -63,6 +78,12 @@ export async function finalizeSuccessfulPayment(input: {
       }
 
       const order = asOrder(orderSnap.id, orderSnap.data()!);
+      if (recordStoreId(order) !== currentStoreId())
+        return {
+          ok: false as const,
+          reason: "Order not found.",
+          code: "store_mismatch",
+        };
 
       if (order.paymentStatus === "paid" && order.inventoryReserved) {
         return { ok: true as const, order, alreadyProcessed: true };
@@ -91,7 +112,7 @@ export async function finalizeSuccessfulPayment(input: {
         };
       }
 
-      const lines = (order.products ?? order.items ?? []) as OrderItem[];
+      const lines = inventoryLines(order);
       if (!lines.length) {
         return {
           ok: false as const,
@@ -185,21 +206,26 @@ export async function finalizeSuccessfulPayment(input: {
       );
       const confirmed = appendTimelineAdmin(timeline, "order_confirmed");
 
-      tx.update(orderRef, stripUndefined({
-        paymentStatus: "paid",
-        orderStatus: "paid",
-        status: "paid",
-        paymentReference: input.payment.reference,
-        paymentId: paymentRef.id,
-        inventoryReserved: true,
-        paidAt: input.payment.paidAt
-          ? new Date(input.payment.paidAt)
-          : FieldValue.serverTimestamp(),
-        timeline: confirmed,
-        updatedAt: FieldValue.serverTimestamp(),
-      }));
+      tx.update(
+        orderRef,
+        stripUndefined({
+          paymentStatus: "paid",
+          orderStatus: "paid",
+          status: "paid",
+          paymentReference: input.payment.reference,
+          paymentId: paymentRef.id,
+          inventoryReserved: true,
+          paidAt: input.payment.paidAt
+            ? new Date(input.payment.paidAt)
+            : FieldValue.serverTimestamp(),
+          timeline: confirmed,
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      );
 
       const paymentPayload: Record<string, unknown> = {
+        storeId: recordStoreId(order)!,
+        storeName: order.storeName || "ShopBeta",
         orderId: order.id,
         orderNumber: order.orderNumber ?? "",
         userId: order.userId,
@@ -276,6 +302,12 @@ export async function markPaymentFailed(input: {
         };
       }
       const order = asOrder(orderSnap.id, orderSnap.data()!);
+      if (recordStoreId(order) !== currentStoreId())
+        return {
+          ok: false as const,
+          reason: "Order not found.",
+          code: "store_mismatch",
+        };
 
       if (order.paymentStatus === "paid") {
         return { ok: true as const, order, alreadyProcessed: true };
@@ -290,11 +322,7 @@ export async function markPaymentFailed(input: {
             ? "payment_expired"
             : "payment_failed";
 
-      const timeline = appendTimelineAdmin(
-        order.timeline,
-        event,
-        input.reason,
-      );
+      const timeline = appendTimelineAdmin(order.timeline, event, input.reason);
 
       if (paymentSnap?.exists) {
         const paymentData = paymentSnap.data()!;
@@ -307,22 +335,28 @@ export async function markPaymentFailed(input: {
           return { ok: true as const, order, alreadyProcessed: true };
         }
         if (input.eventId) processedEventIds.push(input.eventId);
-        tx.update(paymentRef!, stripUndefined({
-          status: input.status,
-          processedEventIds,
-          updatedAt: FieldValue.serverTimestamp(),
-        }));
+        tx.update(
+          paymentRef!,
+          stripUndefined({
+            status: input.status,
+            processedEventIds,
+            updatedAt: FieldValue.serverTimestamp(),
+          }),
+        );
       }
 
-      tx.update(orderRef, stripUndefined({
-        paymentStatus: input.status,
-        ...(String(order.paymentMethod ?? "") === "cash-on-delivery"
-          ? { commitmentFeeStatus: input.status }
-          : {}),
-        ...(input.reference ? { paymentReference: input.reference } : {}),
-        timeline,
-        updatedAt: FieldValue.serverTimestamp(),
-      }));
+      tx.update(
+        orderRef,
+        stripUndefined({
+          paymentStatus: input.status,
+          ...(String(order.paymentMethod ?? "") === "cash-on-delivery"
+            ? { commitmentFeeStatus: input.status }
+            : {}),
+          ...(input.reference ? { paymentReference: input.reference } : {}),
+          timeline,
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      );
 
       return {
         ok: true as const,
@@ -364,6 +398,12 @@ export async function finalizeCashOnDelivery(
         };
       }
       const order = asOrder(orderSnap.id, orderSnap.data()!);
+      if (recordStoreId(order) !== currentStoreId())
+        return {
+          ok: false as const,
+          reason: "Order not found.",
+          code: "store_mismatch",
+        };
 
       if (order.inventoryReserved) {
         return { ok: true as const, order, alreadyProcessed: true };
@@ -391,7 +431,12 @@ export async function finalizeCashOnDelivery(
         };
       }
 
-      const lines = (order.products ?? order.items ?? []) as OrderItem[];
+      const lines = inventoryLines(order);
+      const updates: Array<{
+        ref: DocumentReference;
+        stock: number;
+        salesCount: number;
+      }> = [];
       for (const line of lines) {
         const productRef = db
           .collection(COLLECTIONS.products)
@@ -415,13 +460,20 @@ export async function finalizeCashOnDelivery(
           };
         }
         const nextStock = stock - qty;
-        tx.update(productRef, {
+        updates.push({
+          ref: productRef,
           stock: nextStock,
-          stockStatus: stockStatusFromCount(nextStock),
           salesCount: Number(product.salesCount ?? 0) + qty,
-          updatedAt: FieldValue.serverTimestamp(),
         });
       }
+
+      for (const update of updates)
+        tx.update(update.ref, {
+          stock: update.stock,
+          stockStatus: stockStatusFromCount(update.stock),
+          salesCount: update.salesCount,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
 
       const timeline = appendTimelineAdmin(
         appendTimelineAdmin(order.timeline, "payment_pending"),
@@ -432,6 +484,8 @@ export async function finalizeCashOnDelivery(
       const paymentRef = db.collection(COLLECTIONS.payments).doc();
       const reference = `COD-${order.orderNumber ?? order.id}`;
       const paymentPayload: PaymentDocument = {
+        storeId: recordStoreId(order)!,
+        storeName: order.storeName || "ShopBeta",
         orderId: order.id,
         orderNumber: order.orderNumber ?? "",
         userId: order.userId,
@@ -446,16 +500,19 @@ export async function finalizeCashOnDelivery(
       };
       tx.set(paymentRef, stripUndefined(paymentPayload));
 
-      tx.update(orderRef, stripUndefined({
-        paymentStatus: "pending",
-        orderStatus: "processing",
-        status: "processing",
-        inventoryReserved: true,
-        paymentId: paymentRef.id,
-        paymentReference: reference,
-        timeline,
-        updatedAt: FieldValue.serverTimestamp(),
-      }));
+      tx.update(
+        orderRef,
+        stripUndefined({
+          paymentStatus: "pending",
+          orderStatus: "processing",
+          status: "processing",
+          inventoryReserved: true,
+          paymentId: paymentRef.id,
+          paymentReference: reference,
+          timeline,
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      );
 
       return {
         ok: true as const,
@@ -510,6 +567,12 @@ export async function finalizeCodCommitmentFee(input: {
       }
 
       const order = asOrder(orderSnap.id, orderSnap.data()!);
+      if (recordStoreId(order) !== currentStoreId())
+        return {
+          ok: false as const,
+          reason: "Order not found.",
+          code: "store_mismatch",
+        };
 
       if (order.commitmentFeeStatus === "paid" && order.inventoryReserved) {
         return { ok: true as const, order, alreadyProcessed: true };
@@ -526,7 +589,9 @@ export async function finalizeCodCommitmentFee(input: {
 
       const expectedFee = Number(
         order.codCommitmentFee ??
-          computeCodCommitmentFee(Number(order.total ?? order.totals?.total ?? 0)),
+          computeCodCommitmentFee(
+            Number(order.total ?? order.totals?.total ?? 0),
+          ),
       );
       if (
         input.payment.status === "paid" &&
@@ -550,7 +615,7 @@ export async function finalizeCodCommitmentFee(input: {
         };
       }
 
-      const lines = (order.products ?? order.items ?? []) as OrderItem[];
+      const lines = inventoryLines(order);
       if (!lines.length) {
         return {
           ok: false as const,
@@ -675,6 +740,8 @@ export async function finalizeCodCommitmentFee(input: {
       );
 
       const paymentPayload: Record<string, unknown> = {
+        storeId: recordStoreId(order)!,
+        storeName: order.storeName || "ShopBeta",
         orderId: order.id,
         orderNumber: order.orderNumber ?? "",
         userId: order.userId,

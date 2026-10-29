@@ -1,8 +1,16 @@
 "use client";
+import { requireStoreName } from "@/lib/store";
+import { getAppSettings } from "@/services/settings.service";
+import type { AppSettings } from "@/types/settings";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Check, CreditCard, Lock, Truck } from "lucide-react";
+import { OrderSummary } from "@/components/commerce/order-summary";
+import { ProductMedia } from "@/components/commerce/product-media";
+import { PageHeader } from "@/components/layout/page-header";
+import { ButtonLink } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Input, Label, Radio, Select, Textarea } from "@/components/ui/field";
+import { EmptyCartIllustration } from "@/components/ui/illustrations";
 import {
   cartSubtotal,
   DELIVERY_OPTIONS,
@@ -11,41 +19,37 @@ import {
   orderGrandTotal,
   type DeliveryOptionId,
 } from "@/lib/cart";
+import { applyCouponCode } from "@/lib/coupons";
 import { formatPrice } from "@/lib/utils";
-import { PageHeader } from "@/components/layout/page-header";
-import { Card } from "@/components/ui/card";
-import { Input, Label, Radio, Select, Textarea } from "@/components/ui/field";
-import { ButtonLink } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
-import { EmptyCartIllustration } from "@/components/ui/illustrations";
-import { OrderSummary } from "@/components/commerce/order-summary";
-import { ProductMedia } from "@/components/commerce/product-media";
 import { placeOrder } from "@/services/orders.service";
 import {
-  initializeCodCommitmentFeePayment,
-  initializePaystackPayment,
-  initializeKorapayPayment,
-  initializeSquadPayment,
-  initializeMonnifyPayment,
   getPaymentProviderSettings,
+  initializeBachsPayment,
+  initializeCodCommitmentFeePayment,
+  initializeKorapayPayment,
+  initializeMonnifyPayment,
+  initializePaystackPayment,
+  initializeSquadPayment,
   type CodFeeGateway,
 } from "@/services/payments.service";
-import { applyCouponCode } from "@/lib/coupons";
 import { useCartStore } from "@/stores/cart.store";
 import { useCheckoutStore } from "@/stores/checkout.store";
 import { toastError, toastSuccess } from "@/stores/toast.store";
 import { useUserStore } from "@/stores/user.store";
-import type { Address } from "@/types/user";
 import type { PaymentMethod } from "@/types/order";
+import type { Address } from "@/types/user";
+import { Check, CreditCard, Lock, Truck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 // Payment Provider Options Component
-function PaymentProviderOptions({ 
-  selectedProvider, 
+function PaymentProviderOptions({
+  selectedProvider,
   onSelectProvider,
   deliveryState,
   commitmentFee,
-}: { 
-  selectedProvider: PaymentMethod | null; 
+}: {
+  selectedProvider: PaymentMethod | null;
   onSelectProvider: (provider: PaymentMethod) => void;
   deliveryState: string;
   commitmentFee: number;
@@ -56,6 +60,7 @@ function PaymentProviderOptions({
     paystack: boolean;
     korapay: boolean;
     flutterwave: boolean;
+    bachs: boolean;
     cod: boolean;
     codAllowedStates: string[];
   } | null>(null);
@@ -78,7 +83,10 @@ function PaymentProviderOptions({
   }
 
   const allowedStates = providers.codAllowedStates ?? [];
-  const normalizedState = deliveryState.trim().replace(/\s+/g, " ").toLowerCase();
+  const normalizedState = deliveryState
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
   const codAllowed =
     providers.cod &&
     allowedStates.length > 0 &&
@@ -92,7 +100,9 @@ function PaymentProviderOptions({
       {providers.paystack && (
         <Radio
           name="payment"
-          checked={selectedProvider === "paystack" || selectedProvider === "card"}
+          checked={
+            selectedProvider === "paystack" || selectedProvider === "card"
+          }
           onChange={() => onSelectProvider("paystack")}
           label="Paystack (card / bank / USSD)"
           description="You will be redirected to Paystack to complete payment"
@@ -125,6 +135,15 @@ function PaymentProviderOptions({
           description="You will be redirected to Monnify to complete payment"
         />
       )}
+      {providers.bachs && (
+        <Radio
+          name="payment"
+          checked={selectedProvider === "bachs"}
+          onChange={() => onSelectProvider("bachs")}
+          label="Bachs (card / bank transfer / mobile money)"
+          description="You will be redirected to Bachs to complete payment"
+        />
+      )}
       {providers.cod && (
         <Radio
           name="payment"
@@ -148,10 +167,13 @@ function PaymentProviderOptions({
           A 25% commitment fee is required.
         </p>
       ) : null}
-      {providers.cod && codAllowed && selectedProvider === "cash-on-delivery" ? (
+      {providers.cod &&
+      codAllowed &&
+      selectedProvider === "cash-on-delivery" ? (
         <p className="ml-8 text-[12px] text-amber-700" role="note">
-          A 25% commitment fee ({formatPrice(commitmentFee)}) must be paid online
-          before this order is confirmed. You pay the remaining balance on delivery.
+          A 25% commitment fee ({formatPrice(commitmentFee)}) must be paid
+          online before this order is confirmed. You pay the remaining balance
+          on delivery.
         </p>
       ) : null}
       {providers.flutterwave && (
@@ -193,7 +215,9 @@ export default function CheckoutPage() {
   const couponCode = useCheckoutStore((state) => state.couponCode);
   const couponDiscount = useCheckoutStore((state) => state.couponDiscount);
   const setCouponCode = useCheckoutStore((state) => state.setCouponCode);
-  const setCouponDiscount = useCheckoutStore((state) => state.setCouponDiscount);
+  const setCouponDiscount = useCheckoutStore(
+    (state) => state.setCouponDiscount,
+  );
   const submitting = useCheckoutStore((state) => state.submitting);
   const setSubmitting = useCheckoutStore((state) => state.setSubmitting);
   const error = useCheckoutStore((state) => state.error);
@@ -211,7 +235,13 @@ export default function CheckoutPage() {
   const [codFeeGateway, setCodFeeGateway] = useState<CodFeeGateway>("paystack");
   const [codFeeGateways, setCodFeeGateways] = useState<
     Record<CodFeeGateway, boolean>
-  >({ paystack: false, korapay: false, squad: false, monnify: false });
+  >({
+    paystack: false,
+    korapay: false,
+    squad: false,
+    monnify: false,
+    bachs: false,
+  });
 
   useEffect(() => {
     void getPaymentProviderSettings().then((settings) => {
@@ -220,6 +250,7 @@ export default function CheckoutPage() {
         korapay: settings.korapay,
         squad: settings.squad,
         monnify: settings.monnify,
+        bachs: settings.bachs,
       };
       setCodFeeGateways(enabled);
       const first = (Object.keys(enabled) as CodFeeGateway[]).find(
@@ -234,13 +265,13 @@ export default function CheckoutPage() {
   } | null>(null);
 
   // Auto-select first available payment method if none selected
-  useMemo(() => {
+  useEffect(() => {
     if (paymentMethod) return;
-    
+
     // Get payment provider settings
     const loadSettings = async () => {
       const settings = await getPaymentProviderSettings();
-      
+
       if (settings.paystack) {
         setPaymentMethod("paystack");
       } else if (settings.korapay) {
@@ -253,18 +284,38 @@ export default function CheckoutPage() {
         setPaymentMethod("squad");
       } else if (settings.monnify) {
         setPaymentMethod("monnify");
+      } else if (settings.bachs) {
+        setPaymentMethod("bachs");
       }
     };
-    
+
     void loadSettings();
   }, [paymentMethod, setPaymentMethod]);
 
+  const [storeSettings, setStoreSettings] = useState<AppSettings>();
+  const [configurationError, setConfigurationError] = useState<string>();
+  useEffect(() => {
+    void getAppSettings()
+      .then((settings) => {
+        requireStoreName(settings);
+        setStoreSettings(settings);
+      })
+      .catch(() =>
+        setConfigurationError(
+          "Admin has not configured the store name. Please contact support.",
+        ),
+      );
+  }, []);
   const subtotal = cartSubtotal(items);
-  const shipping = deliveryFeeFor(deliveryOptionId, subtotal);
+  const shipping =
+    storeSettings?.deliveryOptions?.find(
+      (option) => option.id === deliveryOptionId,
+    )?.fee ?? deliveryFeeFor(deliveryOptionId, subtotal);
   const { tax, total } = orderGrandTotal({
     subtotal,
     discount: couponDiscount,
     shipping,
+    taxRate: storeSettings?.taxRate ?? 0.075,
   });
 
   const fullName = useMemo(
@@ -273,6 +324,10 @@ export default function CheckoutPage() {
   );
 
   const validate = (): Address | null => {
+    if (configurationError || !storeSettings) {
+      setError(configurationError || "Store settings are loading.");
+      return null;
+    }
     if (!items.length) {
       setError("Your cart is empty.");
       return null;
@@ -329,10 +384,10 @@ export default function CheckoutPage() {
       setError("Flutterwave is coming soon. Please pay with Paystack or COD.");
       return;
     }
-    
+
     // Get payment provider settings
     const settings = await getPaymentProviderSettings();
-    
+
     if (method === "paystack" && !settings.paystack) {
       setError(
         "Card payment is temporarily unavailable. Choose cash on delivery or try again later.",
@@ -347,6 +402,11 @@ export default function CheckoutPage() {
     if (method === "monnify" && !settings.monnify) {
       setError("Monnify is currently disabled.");
       toastError("Payment unavailable", "Monnify is currently disabled.");
+      return;
+    }
+    if (method === "bachs" && !settings.bachs) {
+      setError("Bachs is currently disabled.");
+      toastError("Payment unavailable", "Bachs is currently disabled.");
       return;
     }
 
@@ -364,11 +424,15 @@ export default function CheckoutPage() {
       const allowedStates = Array.isArray(settings.codAllowedStates)
         ? settings.codAllowedStates
         : [];
-      const normalizedState = stateName.trim().replace(/\s+/g, " ").toLowerCase();
+      const normalizedState = stateName
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
       const stateAllowed =
         normalizedState.length > 0 &&
         allowedStates.some(
-          (s) => s.trim().replace(/\s+/g, " ").toLowerCase() === normalizedState,
+          (s) =>
+            s.trim().replace(/\s+/g, " ").toLowerCase() === normalizedState,
         );
       if (!stateAllowed) {
         setError(
@@ -511,7 +575,9 @@ export default function CheckoutPage() {
         if (!init.ok) {
           setError(init.reason);
           toastError("Payment setup failed", init.reason);
-          router.push(`/payments/failed?order=${encodeURIComponent(result.order.orderNumber ?? result.order.id)}&reason=${encodeURIComponent(init.reason)}`);
+          router.push(
+            `/payments/failed?order=${encodeURIComponent(result.order.orderNumber ?? result.order.id)}&reason=${encodeURIComponent(init.reason)}`,
+          );
           return;
         }
         toastSuccess("Redirecting to Squad");
@@ -519,14 +585,32 @@ export default function CheckoutPage() {
         return;
       }
       if (method === "monnify") {
-        const init = await initializeMonnifyPayment({ orderId: result.order.id });
+        const init = await initializeMonnifyPayment({
+          orderId: result.order.id,
+        });
         if (!init.ok) {
           setError(init.reason);
           toastError("Payment setup failed", init.reason);
-          router.push(`/payments/failed?order=${encodeURIComponent(result.order.orderNumber ?? result.order.id)}&reason=${encodeURIComponent(init.reason)}`);
+          router.push(
+            `/payments/failed?order=${encodeURIComponent(result.order.orderNumber ?? result.order.id)}&reason=${encodeURIComponent(init.reason)}`,
+          );
           return;
         }
         toastSuccess("Redirecting to Monnify");
+        window.location.assign(init.authorizationUrl);
+        return;
+      }
+      if (method === "bachs") {
+        const init = await initializeBachsPayment({ orderId: result.order.id });
+        if (!init.ok) {
+          setError(init.reason);
+          toastError("Payment setup failed", init.reason);
+          router.push(
+            `/payments/failed?order=${encodeURIComponent(result.order.orderNumber ?? result.order.id)}&reason=${encodeURIComponent(init.reason)}`,
+          );
+          return;
+        }
+        toastSuccess("Redirecting to Bachs");
         window.location.assign(init.authorizationUrl);
         return;
       }
@@ -608,7 +692,10 @@ export default function CheckoutPage() {
 
       <ol className="mb-8 flex items-center gap-2 overflow-x-auto no-scrollbar sm:gap-4">
         {steps.map((step, index) => (
-          <li key={step.label} className="flex shrink-0 items-center gap-2 sm:gap-4">
+          <li
+            key={step.label}
+            className="flex shrink-0 items-center gap-2 sm:gap-4"
+          >
             <div className="flex items-center gap-2.5">
               <span
                 className={
@@ -772,7 +859,10 @@ export default function CheckoutPage() {
             </h2>
             <div className="mt-5 space-y-3">
               {DELIVERY_OPTIONS.map((option) => {
-                const fee = deliveryFeeFor(option.id, subtotal);
+                const fee =
+                  storeSettings?.deliveryOptions?.find(
+                    (entry) => entry.id === option.id,
+                  )?.fee ?? deliveryFeeFor(option.id, subtotal);
                 return (
                   <Radio
                     key={option.id}
@@ -791,14 +881,17 @@ export default function CheckoutPage() {
 
           <Card>
             <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
-              <CreditCard className="h-[18px] w-[18px] text-primary" aria-hidden />
+              <CreditCard
+                className="h-[18px] w-[18px] text-primary"
+                aria-hidden
+              />
               Payment method
             </h2>
             <p className="mt-1 text-[13px] text-muted">
               Pay securely with your preferred payment method.
             </p>
             <div className="mt-5 space-y-3">
-              <PaymentProviderOptions 
+              <PaymentProviderOptions
                 selectedProvider={paymentMethod}
                 onSelectProvider={setPaymentMethod}
                 deliveryState={stateName}
@@ -806,7 +899,9 @@ export default function CheckoutPage() {
               />
               {paymentMethod === "cash-on-delivery" ? (
                 <div className="ml-8 space-y-2">
-                  <Label htmlFor="cod-fee-gateway">Pay the commitment fee with</Label>
+                  <Label htmlFor="cod-fee-gateway">
+                    Pay the commitment fee with
+                  </Label>
                   <Select
                     id="cod-fee-gateway"
                     value={codFeeGateway}
@@ -814,10 +909,21 @@ export default function CheckoutPage() {
                       setCodFeeGateway(event.target.value as CodFeeGateway)
                     }
                   >
-                    {codFeeGateways.paystack && <option value="paystack">Paystack</option>}
-                    {codFeeGateways.korapay && <option value="korapay">KoraPay</option>}
-                    {codFeeGateways.squad && <option value="squad">Squad by GTBank</option>}
-                    {codFeeGateways.monnify && <option value="monnify">Monnify</option>}
+                    {codFeeGateways.paystack && (
+                      <option value="paystack">Paystack</option>
+                    )}
+                    {codFeeGateways.korapay && (
+                      <option value="korapay">KoraPay</option>
+                    )}
+                    {codFeeGateways.squad && (
+                      <option value="squad">Squad by GTBank</option>
+                    )}
+                    {codFeeGateways.monnify && (
+                      <option value="monnify">Monnify</option>
+                    )}
+                    {codFeeGateways.bachs && (
+                      <option value="bachs">Bachs</option>
+                    )}
                   </Select>
                 </div>
               ) : null}
@@ -913,7 +1019,9 @@ export default function CheckoutPage() {
                           ? "Redirecting to Squad…"
                           : paymentMethod === "monnify"
                             ? "Redirecting to Monnify…"
-                          : "Placing order…"
+                            : paymentMethod === "bachs"
+                              ? "Redirecting to Bachs…"
+                              : "Placing order…"
                     : paymentMethod === "paystack" || paymentMethod === "card"
                       ? "Pay with Paystack"
                       : paymentMethod === "korapay"
@@ -922,9 +1030,11 @@ export default function CheckoutPage() {
                           ? "Pay with Squad"
                           : paymentMethod === "monnify"
                             ? "Pay with Monnify"
-                          : paymentMethod === "flutterwave"
-                            ? "Pay with Flutterwave"
-                            : "Place order"}
+                            : paymentMethod === "bachs"
+                              ? "Pay with Bachs"
+                              : paymentMethod === "flutterwave"
+                                ? "Pay with Flutterwave"
+                                : "Place order"}
                 </button>
                 <p className="mt-4 text-center text-[12px] leading-relaxed text-muted">
                   By placing this order you agree to the Zenvexa terms of

@@ -1,16 +1,18 @@
+import { COLLECTIONS } from "@/constants/collections";
+import { getDb } from "@/firebase/firestore";
+import { belongsToStore, deploymentStoreId } from "@/lib/store";
+import { storeDocuments } from "@/lib/store-queries";
+import { writeAuditLog } from "@/services/audit.service";
+import type { Banner, BannerDocument } from "@/types/admin";
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
-  getDocs,
+  getDoc,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { COLLECTIONS } from "@/constants/collections";
-import { getDb } from "@/firebase/firestore";
-import { writeAuditLog } from "@/services/audit.service";
-import type { Banner, BannerDocument } from "@/types/admin";
 
 type Actor = { id: string; email?: string };
 
@@ -23,8 +25,8 @@ function bannerDoc(id: string) {
 }
 
 export async function listBannersAdmin(): Promise<Banner[]> {
-  const snapshot = await getDocs(bannersCollection());
-  return snapshot.docs
+  const documents = await storeDocuments(bannersCollection());
+  return documents
     .map((d) => ({ id: d.id, ...(d.data() as BannerDocument) }))
     .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
 }
@@ -35,6 +37,7 @@ export async function createBannerAdmin(
 ) {
   const payload: BannerDocument = {
     ...input,
+    storeId: deploymentStoreId(),
     active: input.active !== false,
     displayOrder: input.displayOrder ?? 0,
     createdAt: serverTimestamp() as never,
@@ -57,8 +60,12 @@ export async function updateBannerAdmin(
   patch: Partial<BannerDocument>,
   actor: Actor,
 ) {
+  const existing = await getDoc(bannerDoc(id));
+  if (!existing.exists() || !belongsToStore(existing.data()))
+    throw new Error("Record not found.");
   await updateDoc(bannerDoc(id), {
     ...patch,
+    storeId: deploymentStoreId(),
     updatedAt: serverTimestamp(),
   });
   await writeAuditLog({
@@ -72,6 +79,9 @@ export async function updateBannerAdmin(
 }
 
 export async function deleteBannerAdmin(id: string, actor: Actor) {
+  const existing = await getDoc(bannerDoc(id));
+  if (!existing.exists() || !belongsToStore(existing.data()))
+    throw new Error("Record not found.");
   await deleteDoc(bannerDoc(id));
   await writeAuditLog({
     actorId: actor.id,

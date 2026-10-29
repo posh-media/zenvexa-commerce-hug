@@ -1,17 +1,22 @@
-import { NextResponse } from "next/server";
-import { reverifyBodySchema } from "@/schemas/payment.schema";
-import { getAdminDb } from "@/lib/server/firebase-admin";
 import { COLLECTIONS } from "@/constants/collections";
-import { verifyKorapayForReference, verifyPaystackForReference } from "@/lib/server/payment-service";
-import { verifySquadForReference } from "@/lib/server/squad-payment-service";
-import { verifyMonnifyForReference } from "@/lib/server/monnify-payment-service";
 import { reportPaymentFailure } from "@/lib/monitoring";
+import { verifyBachsForReference } from "@/lib/server/bachs-payment-service";
+import { getAdminDb } from "@/lib/server/firebase-admin";
+import { verifyMonnifyForReference } from "@/lib/server/monnify-payment-service";
+import {
+  verifyKorapayForReference,
+  verifyPaystackForReference,
+} from "@/lib/server/payment-service";
 import {
   clientKeyFromRequest,
   publicErrorMessage,
   rateLimit,
 } from "@/lib/server/rate-limit";
+import { verifySquadForReference } from "@/lib/server/squad-payment-service";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { reverifyBodySchema } from "@/schemas/payment.schema";
 import type { Order } from "@/types/order";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,14 +25,15 @@ type VerifyResult =
   | Awaited<ReturnType<typeof verifyPaystackForReference>>
   | Awaited<ReturnType<typeof verifyKorapayForReference>>
   | Awaited<ReturnType<typeof verifySquadForReference>>
-  | Awaited<ReturnType<typeof verifyMonnifyForReference>>;
+  | Awaited<ReturnType<typeof verifyMonnifyForReference>>
+  | Awaited<ReturnType<typeof verifyBachsForReference>>;
 
 /**
  * Order-aware manual reverification. The gateway, reference and expected
  * amount all come from the stored order/payment documents — the browser only
  * supplies the order identifier.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "payments-reverify"),
     limit: 10,
@@ -132,7 +138,12 @@ export async function POST(request: Request) {
     }
     if (gateway === "card") gateway = "paystack";
 
-    if (!gateway || !reference || gateway === "cod" || gateway === "cash-on-delivery") {
+    if (
+      !gateway ||
+      !reference ||
+      gateway === "cod" ||
+      gateway === "cash-on-delivery"
+    ) {
       return NextResponse.json(
         {
           ok: false,
@@ -156,6 +167,9 @@ export async function POST(request: Request) {
         break;
       case "monnify":
         result = await verifyMonnifyForReference(reference);
+        break;
+      case "bachs":
+        result = await verifyBachsForReference(reference);
         break;
       default:
         return NextResponse.json(
@@ -207,4 +221,8 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {});
 }

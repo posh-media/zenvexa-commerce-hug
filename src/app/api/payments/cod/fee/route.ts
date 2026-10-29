@@ -1,18 +1,19 @@
-import { NextResponse } from "next/server";
-import { initializeCodFeeBodySchema } from "@/schemas/payment.schema";
+import { reportPaymentFailure } from "@/lib/monitoring";
 import { initializeCodCommitmentFee } from "@/lib/server/cod-fee-service";
 import { isFirebaseAdminConfigured } from "@/lib/server/firebase-admin";
-import { reportPaymentFailure } from "@/lib/monitoring";
 import {
   clientKeyFromRequest,
   publicErrorMessage,
   rateLimit,
 } from "@/lib/server/rate-limit";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { initializeCodFeeBodySchema } from "@/schemas/payment.schema";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "cod-fee-init"),
     limit: 20,
@@ -33,7 +34,10 @@ export async function POST(request: Request) {
   try {
     if (!isFirebaseAdminConfigured()) {
       return NextResponse.json(
-        { ok: false, reason: "Payment verification is not configured on the server." },
+        {
+          ok: false,
+          reason: "Payment verification is not configured on the server.",
+        },
         { status: 503 },
       );
     }
@@ -80,4 +84,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    initialize: true,
+  });
 }

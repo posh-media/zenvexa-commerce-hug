@@ -1,45 +1,49 @@
+import { orderDoc, ordersCollection } from "@/firebase/collections";
+import { authenticatedFetch } from "@/lib/client-api";
+import { appendTimeline } from "@/lib/order-timeline";
+import { belongsToStore } from "@/lib/store";
+import { storeDocuments } from "@/lib/store-queries";
+import { writeAuditLog } from "@/services/audit.service";
+import type { Order, OrderStatus, PaymentStatus } from "@/types/order";
+import { stripUndefined } from "@/utils/firestore";
 import {
   deleteDoc,
-  getCountFromServer,
   getDoc,
-  getDocs,
-  limit,
   orderBy,
-  query,
   serverTimestamp,
-  startAfter,
   updateDoc,
   where,
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { orderDoc, ordersCollection } from "@/firebase/collections";
-import { appendTimeline } from "@/lib/order-timeline";
-import { writeAuditLog } from "@/services/audit.service";
-import type { Order, OrderStatus, PaymentStatus } from "@/types/order";
-import { stripUndefined } from "@/utils/firestore";
 
 type Actor = { id: string; email?: string };
 
 export async function listOrdersAdmin(): Promise<Order[]> {
-  const snapshot = await getDocs(ordersCollection());
-  return snapshot.docs
+  const documents = await storeDocuments(ordersCollection());
+  return documents
     .map((d) => d.data())
     .sort((a, b) => {
-      const aTime = a.createdAt instanceof Date 
-        ? a.createdAt.getTime() 
-        : a.createdAt && typeof a.createdAt === 'object' && 'toDate' in a.createdAt
-          ? (a.createdAt as { toDate: () => Date }).toDate().getTime()
-          : typeof a.createdAt === 'string' || typeof a.createdAt === 'number'
-            ? new Date(a.createdAt).getTime()
-            : 0;
-      const bTime = b.createdAt instanceof Date 
-        ? b.createdAt.getTime() 
-        : b.createdAt && typeof b.createdAt === 'object' && 'toDate' in b.createdAt
-          ? (b.createdAt as { toDate: () => Date }).toDate().getTime()
-          : typeof b.createdAt === 'string' || typeof b.createdAt === 'number'
-            ? new Date(b.createdAt).getTime()
-            : 0;
+      const aTime =
+        a.createdAt instanceof Date
+          ? a.createdAt.getTime()
+          : a.createdAt &&
+              typeof a.createdAt === "object" &&
+              "toDate" in a.createdAt
+            ? (a.createdAt as { toDate: () => Date }).toDate().getTime()
+            : typeof a.createdAt === "string" || typeof a.createdAt === "number"
+              ? new Date(a.createdAt).getTime()
+              : 0;
+      const bTime =
+        b.createdAt instanceof Date
+          ? b.createdAt.getTime()
+          : b.createdAt &&
+              typeof b.createdAt === "object" &&
+              "toDate" in b.createdAt
+            ? (b.createdAt as { toDate: () => Date }).toDate().getTime()
+            : typeof b.createdAt === "string" || typeof b.createdAt === "number"
+              ? new Date(b.createdAt).getTime()
+              : 0;
       return bTime - aTime;
     });
 }
@@ -72,28 +76,23 @@ export async function listOrdersAdminPage(options?: {
   }
   base.push(orderBy("createdAt", "desc"));
 
-  const countSnap = await getCountFromServer(
-    query(ordersCollection(), ...base),
-  );
-
-  const pageConstraints = [...base, limit(pageSize)];
-  if (options?.after) {
-    pageConstraints.push(startAfter(options.after));
-  }
-  const snapshot = await getDocs(
-    query(ordersCollection(), ...pageConstraints),
-  );
-
+  const documents = await storeDocuments(ordersCollection(), base);
+  const afterIndex = options?.after
+    ? documents.findIndex((doc) => doc.id === options.after!.id)
+    : -1;
+  const page = documents.slice(afterIndex + 1, afterIndex + 1 + pageSize);
   return {
-    orders: snapshot.docs.map((d) => d.data()),
-    lastDoc: snapshot.docs[snapshot.docs.length - 1] ?? null,
-    total: countSnap.data().count,
+    orders: page.map((doc) => doc.data()),
+    lastDoc: page[page.length - 1] ?? null,
+    total: documents.length,
   };
 }
 
 export async function getOrderAdmin(id: string) {
   const snapshot = await getDoc(orderDoc(id));
-  return snapshot.exists() ? snapshot.data() : undefined;
+  return snapshot.exists() && belongsToStore(snapshot.data())
+    ? snapshot.data()
+    : undefined;
 }
 
 function timelineEventForStatus(orderStatus: OrderStatus) {
@@ -186,9 +185,9 @@ export async function setOrderTrackingAdmin(
 export async function deleteOrderAdmin(id: string, actor: Actor) {
   const existing = await getOrderAdmin(id);
   if (!existing) throw new Error("Order not found.");
-  
+
   await deleteDoc(orderDoc(id));
-  
+
   await writeAuditLog({
     actorId: actor.id,
     actorEmail: actor.email,
@@ -219,7 +218,7 @@ export async function sendOrderEmailAdmin(
     throw new Error("Order email has already been sent.");
   }
 
-  const response = await fetch("/api/transactional-email", {
+  const response = await authenticatedFetch("/api/transactional-email", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

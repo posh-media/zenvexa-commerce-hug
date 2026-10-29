@@ -1,14 +1,15 @@
-import { NextResponse } from "next/server";
 import { COLLECTIONS } from "@/constants/collections";
 import {
-  isFirebaseAdminConfigured,
   getAdminDb,
+  isFirebaseAdminConfigured,
 } from "@/lib/server/firebase-admin";
+import { withStoreRequest } from "@/lib/server/store-request";
 import {
   isTransactionalEmailType,
   sendTransactionalEmail,
 } from "@/lib/server/transactional-email";
 import type { Order } from "@/types/order";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ function safeMessage(code?: string, reason?: string) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {
@@ -121,4 +122,10 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {
+    staffOnly: true,
+  });
 }

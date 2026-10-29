@@ -83,7 +83,8 @@ export default function AdminAdsPage() {
   const validateForm = (): string | null => {
     if (form.type !== "ads" && form.type !== "other_expense")
       return "Expense type is required.";
-    if (!form.platform.trim()) return "Platform is required.";
+    if (form.type === "ads" && !form.platform.trim())
+      return "Platform is required for ads expenses.";
     if (!form.amount.trim() || Number(form.amount) <= 0) return "Amount must be greater than 0.";
     if (!form.date.trim()) return "Date is required.";
     
@@ -225,32 +226,36 @@ export default function AdminAdsPage() {
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="platform">Platform / Vendor</Label>
-              <Select
-                id="platform"
-                required
-                value={form.platform}
-                onChange={(e) => setForm((f) => ({ ...f, platform: e.target.value }))}
-              >
-                <option value="">Select platform</option>
-                {PLATFORMS.map((platform) => (
-                  <option key={platform} value={platform}>
-                    {platform}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            
-            <div>
-              <Label htmlFor="campaign">Campaign name</Label>
-              <Input
-                id="campaign"
-                value={form.campaignName}
-                onChange={(e) => setForm((f) => ({ ...f, campaignName: e.target.value }))}
-                placeholder="September Product Campaign"
-              />
-            </div>
+            {form.type === "ads" ? (
+              <>
+                <div>
+                  <Label htmlFor="platform">Platform / Vendor</Label>
+                  <Select
+                    id="platform"
+                    required
+                    value={form.platform}
+                    onChange={(e) => setForm((f) => ({ ...f, platform: e.target.value }))}
+                  >
+                    <option value="">Select platform</option>
+                    {PLATFORMS.map((platform) => (
+                      <option key={platform} value={platform}>
+                        {platform}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                
+                <div>
+                  <Label htmlFor="campaign">Campaign name</Label>
+                  <Input
+                    id="campaign"
+                    value={form.campaignName}
+                    onChange={(e) => setForm((f) => ({ ...f, campaignName: e.target.value }))}
+                    placeholder="September Product Campaign"
+                  />
+                </div>
+              </>
+            ) : null}
             
             <div>
               <Label htmlFor="amount">Amount (₦)</Label>
@@ -329,7 +334,7 @@ export default function AdminAdsPage() {
                     {EXPENSE_TYPE_LABELS[ad.type ?? "ads"]}
                   </td>
                   <td className="px-4 py-3 font-medium text-ink">
-                    {ad.platform}
+                    {ad.platform || "—"}
                   </td>
                   <td className="px-4 py-3 text-muted">
                     {ad.campaignName || "—"}

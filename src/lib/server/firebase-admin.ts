@@ -38,8 +38,8 @@ function loadServiceAccount(): ServiceAccount | undefined {
 export function isFirebaseAdminConfigured(): boolean {
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT?.trim() ||
-      process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim() ||
-      process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim(),
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim() ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim(),
   );
 }
 
@@ -68,9 +68,14 @@ export function getAdminApp(): App {
     );
   }
 
+  const accountProject =
+    serviceAccount.projectId ||
+    (serviceAccount as ServiceAccount & { project_id?: string }).project_id;
+  if (projectId && accountProject && projectId !== accountProject)
+    throw new Error("Firebase client and Admin project IDs disagree.");
   app = initializeApp({
     credential: cert(serviceAccount),
-    projectId: serviceAccount.projectId || projectId,
+    projectId: accountProject || projectId,
   });
   return app;
 }

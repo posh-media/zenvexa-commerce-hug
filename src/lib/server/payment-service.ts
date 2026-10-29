@@ -1,36 +1,38 @@
-import { FieldValue } from "firebase-admin/firestore";
 import { COLLECTIONS } from "@/constants/collections";
+import { COD_FEE_PURPOSE } from "@/lib/cod";
 import {
   getAppUrl,
-  isPaystackConfigured,
   isKorapayConfigured,
-  isPaystackEnabled,
   isKorapayEnabled,
+  isPaystackConfigured,
+  isPaystackEnabled,
   toKobo,
+  trustedCallbackUrl,
 } from "@/lib/server/env";
-import { getAdminDb } from "@/lib/server/firebase-admin";
-import { appendTimelineAdmin } from "@/lib/server/order-timeline";
-import {
-  initializePaystackTransaction,
-  normalizePaystackVerification,
-  verifyPaystackTransaction,
-  amountsMatch,
-} from "@/lib/server/paystack";
-import {
-  initializeKorapayTransaction,
-  normalizeKorapayVerification,
-  verifyKorapayTransaction,
-  amountsMatch as korapayAmountsMatch,
-} from "@/lib/server/korapay";
 import {
   finalizeCodCommitmentFee,
   finalizeSuccessfulPayment,
   markPaymentFailed,
 } from "@/lib/server/finalize-payment";
-import { COD_FEE_PURPOSE } from "@/lib/cod";
+import { getAdminDb } from "@/lib/server/firebase-admin";
+import {
+  initializeKorapayTransaction,
+  amountsMatch as korapayAmountsMatch,
+  normalizeKorapayVerification,
+  verifyKorapayTransaction,
+} from "@/lib/server/korapay";
+import { appendTimelineAdmin } from "@/lib/server/order-timeline";
+import { paymentLog } from "@/lib/server/payment-log";
+import {
+  amountsMatch,
+  initializePaystackTransaction,
+  normalizePaystackVerification,
+  verifyPaystackTransaction,
+} from "@/lib/server/paystack";
+import { currentStoreContext } from "@/lib/server/store-context";
 import type { Order } from "@/types/order";
 import { stripUndefined } from "@/utils/firestore";
-import { paymentLog } from "@/lib/server/payment-log";
+import { FieldValue } from "firebase-admin/firestore";
 
 // IMPORTANT: Paystack vs KoraPay amount handling
 // Paystack: Requires amounts in kobo (Naira * 100) - uses toKobo()
@@ -92,9 +94,10 @@ export async function initializePaystackForOrder(input: {
   }
 
   const reference = paymentReferenceForOrder(order);
-  const callbackUrl =
-    input.callbackUrl ||
-    `${getAppUrl()}/payments/callback?order=${encodeURIComponent(order.orderNumber ?? order.id)}`;
+  const callbackUrl = trustedCallbackUrl(
+    input.callbackUrl,
+    `${getAppUrl()}/payments/callback?order=${encodeURIComponent(order.orderNumber ?? order.id)}`,
+  );
 
   const initialized = await initializePaystackTransaction({
     email,
@@ -121,6 +124,9 @@ export async function initializePaystackForOrder(input: {
       orderNumber: order.orderNumber ?? "",
       userId: order.userId,
       gateway: "paystack",
+      storeId: currentStoreContext().id,
+      storeName: order.storeName,
+      credentialVersion: currentStoreContext().credentialVersion,
       reference: initialized.reference,
       amount,
       amountKobo: toKobo(amount),
@@ -161,8 +167,10 @@ export async function initializeKorapayForOrder(input: {
   orderId: string;
   callbackUrl?: string;
 }) {
-  console.log("[initializeKorapayForOrder] Starting initialization", { orderId: input.orderId });
-  
+  console.log("[initializeKorapayForOrder] Starting initialization", {
+    orderId: input.orderId,
+  });
+
   if (!(await isKorapayEnabled())) {
     console.log("[initializeKorapayForOrder] KoraPay is disabled");
     return {
@@ -181,8 +189,10 @@ export async function initializeKorapayForOrder(input: {
   console.log("[initializeKorapayForOrder] Getting Admin DB");
   const db = getAdminDb();
   const orderRef = db.collection(COLLECTIONS.orders).doc(input.orderId);
-  console.log("[initializeKorapayForOrder] Fetching order", { orderId: input.orderId });
-  
+  console.log("[initializeKorapayForOrder] Fetching order", {
+    orderId: input.orderId,
+  });
+
   const orderSnap = await orderRef.get();
   if (!orderSnap.exists) {
     console.log("[initializeKorapayForOrder] Order not found");
@@ -190,15 +200,17 @@ export async function initializeKorapayForOrder(input: {
   }
 
   const order = { id: orderSnap.id, ...orderSnap.data() } as Order;
-  console.log("[initializeKorapayForOrder] Order found", { 
-    orderId: order.id, 
+  console.log("[initializeKorapayForOrder] Order found", {
+    orderId: order.id,
     paymentMethod: order.paymentMethod,
-    paymentStatus: order.paymentStatus 
+    paymentStatus: order.paymentStatus,
   });
-  
+
   const method = String(order.paymentMethod ?? "");
   if (method !== "korapay") {
-    console.log("[initializeKorapayForOrder] Order not set up for KoraPay", { method });
+    console.log("[initializeKorapayForOrder] Order not set up for KoraPay", {
+      method,
+    });
     return {
       ok: false as const,
       reason: "This order is not set up for KoraPay.",
@@ -223,9 +235,10 @@ export async function initializeKorapayForOrder(input: {
   }
 
   const reference = paymentReferenceForOrder(order);
-  const redirectUrl =
-    input.callbackUrl ||
-    `${getAppUrl()}/payments/callback?order=${encodeURIComponent(order.orderNumber ?? order.id)}`;
+  const redirectUrl = trustedCallbackUrl(
+    input.callbackUrl,
+    `${getAppUrl()}/payments/callback?order=${encodeURIComponent(order.orderNumber ?? order.id)}`,
+  );
 
   console.log("[initializeKorapayForOrder] Calling KoraPay API", {
     email,
@@ -252,7 +265,10 @@ export async function initializeKorapayForOrder(input: {
     console.error("[initializeKorapayForOrder] KoraPay API error", error);
     return {
       ok: false as const,
-      reason: error instanceof Error ? error.message : "Failed to initialize KoraPay payment",
+      reason:
+        error instanceof Error
+          ? error.message
+          : "Failed to initialize KoraPay payment",
     };
   }
 
@@ -268,14 +284,19 @@ export async function initializeKorapayForOrder(input: {
   });
 
   const paymentRef = db.collection(COLLECTIONS.payments).doc();
-  console.log("[initializeKorapayForOrder] Creating payment document", { paymentId: paymentRef.id });
-  
+  console.log("[initializeKorapayForOrder] Creating payment document", {
+    paymentId: paymentRef.id,
+  });
+
   await paymentRef.set(
     stripUndefined({
       orderId: order.id,
       orderNumber: order.orderNumber ?? "",
       userId: order.userId,
       gateway: "korapay",
+      storeId: currentStoreContext().id,
+      storeName: order.storeName,
+      credentialVersion: currentStoreContext().credentialVersion,
       reference: initialized.reference,
       amount,
       // KoraPay uses Naira directly, not kobo like Paystack
@@ -287,7 +308,9 @@ export async function initializeKorapayForOrder(input: {
     }),
   );
 
-  console.log("[initializeKorapayForOrder] Updating order with payment reference");
+  console.log(
+    "[initializeKorapayForOrder] Updating order with payment reference",
+  );
   await orderRef.update(
     stripUndefined({
       paymentMethod: "korapay",
@@ -353,7 +376,8 @@ export async function verifyPaystackForReference(reference: string) {
   const normalized = normalizePaystackVerification(verified);
 
   if (!orderId) {
-    const meta = verified.metadata as { orderId?: string; purpose?: string } | undefined;
+    const meta = verified.metadata as
+      { orderId?: string; purpose?: string } | undefined;
     orderId = meta?.orderId;
     if (meta?.purpose === COD_FEE_PURPOSE) isCodFee = true;
   }
@@ -449,10 +473,12 @@ export async function verifyKorapayForReference(reference: string) {
     };
   }
 
-  console.log("[verifyKorapayForReference] Starting verification", { reference });
+  console.log("[verifyKorapayForReference] Starting verification", {
+    reference,
+  });
 
   const db = getAdminDb();
-  
+
   // First try to find payment by the exact reference
   const paymentSnap = await db
     .collection(COLLECTIONS.payments)
@@ -487,8 +513,10 @@ export async function verifyKorapayForReference(reference: string) {
 
   // If not found by reference, try to find by orderId from metadata or by looking up the order
   if (!orderId) {
-    console.log("[verifyKorapayForReference] No payment found by reference, trying KoraPay verification");
-    
+    console.log(
+      "[verifyKorapayForReference] No payment found by reference, trying KoraPay verification",
+    );
+
     // Try to verify with KoraPay first to get the actual transaction details
     let verified;
     try {
@@ -511,16 +539,20 @@ export async function verifyKorapayForReference(reference: string) {
     }
 
     const normalized = normalizeKorapayVerification(verified);
-    
+
     // Extract orderId from KoraPay metadata
-    const meta = verified.metadata as { orderId?: string; orderNumber?: string; purpose?: string } | undefined;
+    const meta = verified.metadata as
+      { orderId?: string; orderNumber?: string; purpose?: string } | undefined;
     orderId = meta?.orderId;
     if (meta?.purpose === COD_FEE_PURPOSE) isCodFee = true;
-    
-    console.log("[verifyKorapayForReference] Extracted orderId from KoraPay metadata", {
-      orderId,
-      orderNumber: meta?.orderNumber,
-    });
+
+    console.log(
+      "[verifyKorapayForReference] Extracted orderId from KoraPay metadata",
+      {
+        orderId,
+        orderNumber: meta?.orderNumber,
+      },
+    );
 
     if (!orderId) {
       return {
@@ -530,7 +562,10 @@ export async function verifyKorapayForReference(reference: string) {
     }
 
     // Now look up the payment by orderId
-    const orderSnap = await db.collection(COLLECTIONS.orders).doc(orderId).get();
+    const orderSnap = await db
+      .collection(COLLECTIONS.orders)
+      .doc(orderId)
+      .get();
     if (!orderSnap.exists) {
       console.log("[verifyKorapayForReference] Order not found", { orderId });
       return {
@@ -540,7 +575,8 @@ export async function verifyKorapayForReference(reference: string) {
     }
 
     const order = { id: orderSnap.id, ...orderSnap.data() } as Order;
-    if (!isCodFee && order.paymentMethod === "cash-on-delivery") isCodFee = true;
+    if (!isCodFee && order.paymentMethod === "cash-on-delivery")
+      isCodFee = true;
     expectedAmount = isCodFee
       ? Number(order.codCommitmentFee ?? 0)
       : Number(order.total ?? order.totals?.total ?? 0);

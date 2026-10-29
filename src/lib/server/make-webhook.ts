@@ -1,23 +1,29 @@
-import { FieldValue } from "firebase-admin/firestore";
+import { recordStoreId } from "@/lib/store";
+import { getAppUrl } from "@/lib/server/env";
 import { COLLECTIONS } from "@/constants/collections";
 import { getAdminDb } from "@/lib/server/firebase-admin";
 import { paymentLog } from "@/lib/server/payment-log";
+import {
+  currentStoreId,
+  deploymentEnv,
+  privateIntegrationSettings,
+} from "@/lib/server/store-context";
 import type { Order, OrderItem } from "@/types/order";
+import { FieldValue } from "firebase-admin/firestore";
 
 async function getMakeWebhookUrl() {
-  // Try Firestore settings first
-  const { getAppSettings } = await import("@/services/settings.service");
-  const settings = await getAppSettings();
-  const firestoreUrl = settings?.notifications?.makeWebhookUrl?.trim();
-  
-  if (firestoreUrl) {
-    return firestoreUrl;
+  const privateSettings = await privateIntegrationSettings();
+  if (privateSettings.makeWebhookUrl)
+    return String(privateSettings.makeWebhookUrl);
+  if (currentStoreId() === "shopbeta") {
+    const legacy = (
+      await getAdminDb().collection("settings").doc("app").get()
+    ).data()?.notifications?.makeWebhookUrl;
+    if (legacy) return String(legacy);
   }
-  
-  // Fallback to environment variables
   return (
-    process.env.MAKE_WEBHOOK_URL?.trim() ||
-    process.env.MAKE_COM_WEBHOOK_URL?.trim() ||
+    deploymentEnv("MAKE_WEBHOOK_URL") ||
+    deploymentEnv("MAKE_COM_WEBHOOK_URL") ||
     ""
   );
 }
@@ -76,6 +82,9 @@ function expectedDeliveryLabel(order: Order) {
 }
 
 export type MakeOrderPayload = {
+  storeId: string | null;
+  storeName: string;
+  storefrontUrl: string;
   customerName: string;
   customerEmail: string;
   phoneNumber: string;
@@ -118,6 +127,11 @@ export function buildMakeOrderPayload(
       : new Date().toISOString();
 
   return {
+    storeId: recordStoreId(order),
+    storeName:
+      order.storeName ||
+      (recordStoreId(order) === "shopbeta" ? "ShopBeta" : ""),
+    storefrontUrl: getAppUrl(),
     customerName: order.customer?.name || "Customer",
     customerEmail: order.customer?.email || "",
     phoneNumber:
@@ -203,7 +217,10 @@ export async function notifyMakeOrderPaid(input: {
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify(payload),
       cache: "no-store",
     });
@@ -244,7 +261,8 @@ export async function notifyMakeOrderPaid(input: {
     });
     return { ok: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Make request failed";
+    const message =
+      error instanceof Error ? error.message : "Make request failed";
     await orderRef.set(
       {
         makeNotifyStatus: "failed",

@@ -1,4 +1,5 @@
 import type { IconKey } from "@/lib/data";
+import { orderPrefix } from "@/lib/store";
 
 /** Guest-persisted cart line with display snapshot. Firestore sync stores ids only. */
 export type CartLine = {
@@ -42,7 +43,8 @@ export const DELIVERY_OPTIONS = [
     id: "pickup",
     label: "Store pickup — free (ready in <6 hours)",
     fee: 0,
-    estimatedDays: "Same day - Pickup details will be sent to provided email address",
+    estimatedDays:
+      "Same day - Pickup details will be sent to provided email address",
   },
 ] as const;
 
@@ -128,13 +130,10 @@ export function getGuestId(): string {
   return id;
 }
 
-export function generateOrderNumber() {
+export function generateOrderNumber(storeName: string) {
   const stamp = Date.now().toString(36).toUpperCase();
-  const rand = Math.floor(Math.random() * 36 ** 3)
-    .toString(36)
-    .toUpperCase()
-    .padStart(3, "0");
-  return `SB-${stamp}${rand}`;
+  const rand = globalThis.crypto.randomUUID().replaceAll("-", "").toUpperCase();
+  return `${orderPrefix(storeName)}-${stamp}${rand}`;
 }
 
 export function estimatedDeliveryLabel(optionId: DeliveryOptionId = "express") {

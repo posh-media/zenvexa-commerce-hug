@@ -1,17 +1,18 @@
-import { NextResponse } from "next/server";
-import { verifyPaystackBodySchema } from "@/schemas/payment.schema";
-import { verifyKorapayForReference } from "@/lib/server/payment-service";
 import { reportPaymentFailure } from "@/lib/monitoring";
+import { verifyKorapayForReference } from "@/lib/server/payment-service";
 import {
   clientKeyFromRequest,
   publicErrorMessage,
   rateLimit,
 } from "@/lib/server/rate-limit";
+import { withStoreRequest } from "@/lib/server/store-request";
+import { verifyPaystackBodySchema } from "@/schemas/payment.schema";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "korapay-verify"),
     limit: 30,
@@ -78,4 +79,8 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function POST(request: Request) {
+  return withStoreRequest(request, () => handlePOST(request), {});
 }

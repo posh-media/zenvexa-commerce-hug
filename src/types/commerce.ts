@@ -61,6 +61,8 @@ export type NotificationKind = NotificationType;
 
 /** Planned `notifications` collection. */
 export type NotificationDocument = Timestamps & {
+  storeId?: "shopbeta" | "zenvexa";
+
   userId: string;
   title: string;
   /** Primary message body. */

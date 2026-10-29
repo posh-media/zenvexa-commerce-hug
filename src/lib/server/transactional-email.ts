@@ -1,3 +1,11 @@
+import { recordStoreId } from "@/lib/store";
+import { getAppUrl } from "@/lib/server/env";
+import { getAdminDb } from "@/lib/server/firebase-admin";
+import {
+  currentStoreId,
+  deploymentEnv,
+  privateIntegrationSettings,
+} from "@/lib/server/store-context";
 /**
  * Dedicated server-side transactional email service.
  *
@@ -50,20 +58,18 @@ function emailLog(message: string, meta?: Record<string, unknown>) {
  * Priority: Firestore settings → environment variable → "" (not configured).
  */
 export async function getTransactionalEmailWebhookUrl(): Promise<string> {
-  try {
-    const { getAppSettings } = await import("@/services/settings.service");
-    const settings = await getAppSettings();
-    const url = settings?.notifications?.transactionalEmailWebhookUrl?.trim();
-    if (url) return url;
-  } catch (error) {
-    emailLog("settings lookup failed — falling back to env", {
-      reason: error instanceof Error ? error.message : "unknown",
-    });
+  const settings = await privateIntegrationSettings();
+  if (settings.transactionalEmailWebhookUrl)
+    return String(settings.transactionalEmailWebhookUrl);
+  if (currentStoreId() === "shopbeta") {
+    const legacy = (
+      await getAdminDb().collection("settings").doc("app").get()
+    ).data()?.notifications?.transactionalEmailWebhookUrl;
+    if (legacy) return String(legacy);
   }
-
   return (
-    process.env.MAKE_TRANSACTIONAL_WEBHOOK_URL?.trim() ||
-    process.env.TRANSACTIONAL_EMAIL_WEBHOOK_URL?.trim() ||
+    deploymentEnv("MAKE_TRANSACTIONAL_WEBHOOK_URL") ||
+    deploymentEnv("TRANSACTIONAL_EMAIL_WEBHOOK_URL") ||
     ""
   );
 }
@@ -74,11 +80,11 @@ async function getSupportEmail(): Promise<string> {
     const settings = await getAppSettings();
     return (
       settings?.contactDetails?.email?.trim() ||
-      process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim() ||
+      deploymentEnv("NEXT_PUBLIC_SUPPORT_EMAIL")?.trim() ||
       ""
     );
   } catch {
-    return process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim() || "";
+    return deploymentEnv("NEXT_PUBLIC_SUPPORT_EMAIL")?.trim() || "";
   }
 }
 
@@ -153,6 +159,9 @@ function orderDateIso(order: Order): string {
 }
 
 export type TransactionalEmailPayload = {
+  storeId: string | null;
+  storeName: string;
+  storefrontUrl: string;
   emailType: TransactionalEmailType;
   recipientEmail: string;
   customerName: string;
@@ -200,6 +209,11 @@ export async function buildTransactionalEmailPayload(input: {
 
   return {
     emailType,
+    storeId: recordStoreId(order),
+    storeName:
+      order.storeName ||
+      (recordStoreId(order) === "shopbeta" ? "ShopBeta" : ""),
+    storefrontUrl: getAppUrl(),
     recipientEmail: input.recipientOverride?.trim() || customerEmail,
     customerName: order.customer?.name || "Customer",
     customerEmail,
@@ -225,15 +239,18 @@ export async function buildTransactionalEmailPayload(input: {
     paymentStatus: String(order.paymentStatus ?? ""),
     paymentMethod: String(order.paymentMethod ?? ""),
     currency: "NGN",
-    reference: input.reference || order.paymentReference || order.orderNumber || order.id,
+    reference:
+      input.reference ||
+      order.paymentReference ||
+      order.orderNumber ||
+      order.id,
     orderStatus: String(order.orderStatus ?? order.status ?? ""),
     supportEmail,
   };
 }
 
 export type TransactionalEmailResult =
-  | { ok: true }
-  | { ok: false; reason: string; code?: string };
+  { ok: true } | { ok: false; reason: string; code?: string };
 
 /**
  * Send a transactional email request to the dedicated Make.com webhook.
@@ -261,7 +278,11 @@ export async function sendTransactionalEmail(input: {
 
   const payload = await buildTransactionalEmailPayload(input);
   if (!payload.recipientEmail) {
-    return { ok: false, reason: "missing_recipient", code: "missing_recipient" };
+    return {
+      ok: false,
+      reason: "missing_recipient",
+      code: "missing_recipient",
+    };
   }
 
   emailLog("Make webhook request started", {
@@ -272,7 +293,10 @@ export async function sendTransactionalEmail(input: {
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify(payload),
       cache: "no-store",
     });

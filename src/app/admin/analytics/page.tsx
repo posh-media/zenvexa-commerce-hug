@@ -90,7 +90,7 @@ export default function AdminAnalyticsPage() {
             </div>
             <div>
               <h2 className="mb-3 text-sm font-semibold text-ink">
-                Most viewed
+                Most viewed (shared catalog)
               </h2>
               <AdminTable headers={["Product", "Views"]}>
                 {data.mostViewed.map((row) => (

@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
-import { getAdminDb } from "@/lib/server/firebase-admin";
 import { COLLECTIONS } from "@/constants/collections";
+import { getAdminDb } from "@/lib/server/firebase-admin";
 import { publicErrorMessage } from "@/lib/server/rate-limit";
+import { belongsToStore } from "@/lib/store";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,11 +29,11 @@ export async function GET(request: Request) {
       .limit(1)
       .get();
 
-    if (!snapshot.empty) {
+    if (!snapshot.empty && belongsToStore(snapshot.docs[0]!.data())) {
       const orderDoc = snapshot.docs[0];
       return NextResponse.json({
         ok: true,
-        order: { id: orderDoc.id, ...orderDoc.data() },
+        order: publicOrder(orderDoc.id, orderDoc.data()!),
       });
     }
 
@@ -43,10 +44,10 @@ export async function GET(request: Request) {
         .doc(orderNumber.trim())
         .get();
 
-      if (docSnapshot.exists) {
+      if (docSnapshot.exists && belongsToStore(docSnapshot.data()!)) {
         return NextResponse.json({
           ok: true,
-          order: { id: docSnapshot.id, ...docSnapshot.data() },
+          order: publicOrder(docSnapshot.id, docSnapshot.data()!),
         });
       }
     } catch {
@@ -66,4 +67,26 @@ export async function GET(request: Request) {
       { status: 500 },
     );
   }
+}
+
+function publicOrder(id: string, data: FirebaseFirestore.DocumentData) {
+  const keys = [
+    "storeId",
+    "storeName",
+    "orderNumber",
+    "paymentStatus",
+    "orderStatus",
+    "status",
+    "timeline",
+    "createdAt",
+    "updatedAt",
+    "expectedDelivery",
+    "deliveryOptionId",
+  ];
+  return {
+    id,
+    ...Object.fromEntries(
+      keys.filter((k) => data[k] !== undefined).map((k) => [k, data[k]]),
+    ),
+  };
 }

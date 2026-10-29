@@ -11,6 +11,8 @@ export type BannerPlacement = (typeof BANNER_PLACEMENTS)[number];
 
 /** `banners` collection. */
 export type BannerDocument = Timestamps & {
+  storeId?: "shopbeta" | "zenvexa";
+
   title: string;
   subtitle?: string;
   ctaLabel?: string;
@@ -27,6 +29,8 @@ export type Banner = BannerDocument & { id: string };
 
 /** `auditLogs` collection. */
 export type AuditLogDocument = Timestamps & {
+  storeId?: "shopbeta" | "zenvexa";
+
   actorId: string;
   actorEmail?: string;
   action: string;

@@ -1,13 +1,11 @@
-import { randomUUID } from "node:crypto";
-import { FieldValue } from "firebase-admin/firestore";
 import { COLLECTIONS } from "@/constants/collections";
-import { getAdminDb } from "@/lib/server/firebase-admin";
-import { appendTimelineAdmin } from "@/lib/server/order-timeline";
 import {
+  COD_FEE_PURPOSE,
   computeCodCommitmentFee,
   isCodStateAllowed,
-  COD_FEE_PURPOSE,
 } from "@/lib/cod";
+import { createBachsCheckoutSession } from "@/lib/server/bachs";
+import { getBachsConfiguration } from "@/lib/server/bachs-settings";
 import {
   getAppUrl,
   getCodAllowedStates,
@@ -18,24 +16,34 @@ import {
   isPaystackEnabled,
   toKobo,
 } from "@/lib/server/env";
-import { initializePaystackTransaction } from "@/lib/server/paystack";
+import { getAdminDb } from "@/lib/server/firebase-admin";
 import { initializeKorapayTransaction } from "@/lib/server/korapay";
-import { getSquadConfiguration } from "@/lib/server/squad-settings";
-import { initializeSquadTransaction } from "@/lib/server/squad";
-import { getMonnifyConfiguration } from "@/lib/server/monnify-settings";
 import { initializeMonnifyTransaction } from "@/lib/server/monnify";
-import { stripUndefined } from "@/utils/firestore";
+import { getMonnifyConfiguration } from "@/lib/server/monnify-settings";
+import { appendTimelineAdmin } from "@/lib/server/order-timeline";
+import { initializePaystackTransaction } from "@/lib/server/paystack";
+import { initializeSquadTransaction } from "@/lib/server/squad";
+import { getSquadConfiguration } from "@/lib/server/squad-settings";
+import { currentStoreContext } from "@/lib/server/store-context";
 import type { Order } from "@/types/order";
+import { stripUndefined } from "@/utils/firestore";
+import { FieldValue } from "firebase-admin/firestore";
+import { randomUUID } from "node:crypto";
 
-export type CodFeeGateway = "paystack" | "korapay" | "squad" | "monnify";
+export type CodFeeGateway =
+  "paystack" | "korapay" | "squad" | "monnify" | "bachs";
 
 function feeReferenceForOrder(order: Order, gateway: CodFeeGateway) {
   // Squad and Monnify webhooks gate on provider-shaped references
   // (`SQ`/`MN` + 32 hex), so those gateways must keep the existing format.
   if (gateway === "squad") return `SQ${randomUUID().replaceAll("-", "")}`;
   if (gateway === "monnify") return `MN${randomUUID().replaceAll("-", "")}`;
+  if (gateway === "bachs") return `BA${randomUUID().replaceAll("-", "")}`;
   const base = (order.orderNumber || order.id).replace(/[^a-zA-Z0-9]/g, "");
-  return `SBFEE_${gateway.toUpperCase()}_${base}_${randomUUID().replaceAll("-", "")}`.slice(0, 100);
+  return `SBFEE_${gateway.toUpperCase()}_${base}_${randomUUID().replaceAll("-", "")}`.slice(
+    0,
+    100,
+  );
 }
 
 /**
@@ -77,7 +85,9 @@ export async function initializeCodCommitmentFee(input: {
   // sufficient on its own.
   const allowedStates = await getCodAllowedStates();
   if (!isCodStateAllowed(allowedStates, order.shippingAddress?.state)) {
-    const list = allowedStates.length ? allowedStates.join(", ") : "none configured";
+    const list = allowedStates.length
+      ? allowedStates.join(", ")
+      : "none configured";
     return {
       ok: false as const,
       reason: `Payment on delivery is only allowed in the following areas: ${list}. A 25% commitment fee is required.`,
@@ -99,27 +109,54 @@ export async function initializeCodCommitmentFee(input: {
 
   // Validate the gateway up front — do not leave a dangling "processing"
   // payment attempt on the order when the provider is disabled/unconfigured.
-  let squadConfig: Awaited<ReturnType<typeof getSquadConfiguration>> | undefined;
+  let squadConfig:
+    Awaited<ReturnType<typeof getSquadConfiguration>> | undefined;
   let monnifyConfig:
-    | Awaited<ReturnType<typeof getMonnifyConfiguration>>
-    | undefined;
+    Awaited<ReturnType<typeof getMonnifyConfiguration>> | undefined;
+  let bachsConfig:
+    Awaited<ReturnType<typeof getBachsConfiguration>> | undefined;
   if (gateway === "paystack") {
     if (!(await isPaystackEnabled()) || !(await isPaystackConfigured())) {
-      return { ok: false as const, reason: "Paystack is not configured or is currently disabled." };
+      return {
+        ok: false as const,
+        reason: "Paystack is not configured or is currently disabled.",
+      };
     }
   } else if (gateway === "korapay") {
     if (!(await isKorapayEnabled()) || !(await isKorapayConfigured())) {
-      return { ok: false as const, reason: "KoraPay is not configured or is currently disabled." };
+      return {
+        ok: false as const,
+        reason: "KoraPay is not configured or is currently disabled.",
+      };
     }
   } else if (gateway === "squad") {
     squadConfig = await getSquadConfiguration();
     if (!squadConfig.enabled || !squadConfig.secretKey) {
-      return { ok: false as const, reason: "Squad is not configured or is currently disabled." };
+      return {
+        ok: false as const,
+        reason: "Squad is not configured or is currently disabled.",
+      };
+    }
+  } else if (gateway === "bachs") {
+    bachsConfig = await getBachsConfiguration();
+    if (!bachsConfig.enabled || !bachsConfig.apiKey) {
+      return {
+        ok: false as const,
+        reason: "Bachs is not configured or is currently disabled.",
+      };
     }
   } else {
     monnifyConfig = await getMonnifyConfiguration();
-    if (!monnifyConfig.enabled || !monnifyConfig.secretKey || !monnifyConfig.apiKey || !monnifyConfig.contractCode) {
-      return { ok: false as const, reason: "Monnify is not configured or is currently disabled." };
+    if (
+      !monnifyConfig.enabled ||
+      !monnifyConfig.secretKey ||
+      !monnifyConfig.apiKey ||
+      !monnifyConfig.contractCode
+    ) {
+      return {
+        ok: false as const,
+        reason: "Monnify is not configured or is currently disabled.",
+      };
     }
   }
 
@@ -137,6 +174,9 @@ export async function initializeCodCommitmentFee(input: {
       orderNumber: order.orderNumber ?? "",
       userId: order.userId,
       gateway,
+      storeId: currentStoreContext().id,
+      storeName: order.storeName,
+      credentialVersion: currentStoreContext().credentialVersion,
       purpose: COD_FEE_PURPOSE,
       reference,
       amount: fee,
@@ -145,7 +185,10 @@ export async function initializeCodCommitmentFee(input: {
       status: "processing",
       customerEmail: email,
       metadata: stripUndefined({
-        sandbox: squadConfig?.sandbox ?? monnifyConfig?.sandbox,
+        sandbox:
+          squadConfig?.sandbox ??
+          monnifyConfig?.sandbox ??
+          bachsConfig?.sandbox,
       }),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -171,7 +214,11 @@ export async function initializeCodCommitmentFee(input: {
   );
 
   let initialized:
-    | { authorizationUrl?: string; reference?: string; transactionReference?: string }
+    | {
+        authorizationUrl?: string;
+        reference?: string;
+        transactionReference?: string;
+      }
     | undefined;
   try {
     if (gateway === "paystack") {
@@ -180,18 +227,35 @@ export async function initializeCodCommitmentFee(input: {
         amountNaira: fee,
         reference,
         callbackUrl,
-        metadata: { orderId: order.id, orderNumber: order.orderNumber, userId: order.userId, purpose: COD_FEE_PURPOSE },
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId: order.userId,
+          purpose: COD_FEE_PURPOSE,
+        },
       });
-      initialized = { authorizationUrl: res.authorization_url, reference: res.reference };
+      initialized = {
+        authorizationUrl: res.authorization_url,
+        reference: res.reference,
+      };
     } else if (gateway === "korapay") {
       const res = await initializeKorapayTransaction({
         email,
         amountNaira: fee,
         reference,
         redirectUrl: callbackUrl,
-        metadata: { orderId: order.id, orderNumber: order.orderNumber, userId: order.userId, purpose: COD_FEE_PURPOSE, customerName: order.customer?.name },
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId: order.userId,
+          purpose: COD_FEE_PURPOSE,
+          customerName: order.customer?.name,
+        },
       });
-      initialized = { authorizationUrl: res.checkout_url, reference: res.reference };
+      initialized = {
+        authorizationUrl: res.checkout_url,
+        reference: res.reference,
+      };
     } else if (gateway === "squad") {
       const res = await initializeSquadTransaction(squadConfig!, {
         email,
@@ -199,9 +263,36 @@ export async function initializeCodCommitmentFee(input: {
         amount: fee,
         reference,
         callbackUrl,
-        metadata: { orderId: order.id, orderNumber: order.orderNumber, purpose: COD_FEE_PURPOSE },
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          purpose: COD_FEE_PURPOSE,
+        },
       });
       initialized = res;
+    } else if (gateway === "bachs") {
+      const appUrl = getAppUrl();
+      const cancel = new URL("/payments/cancelled", appUrl);
+      cancel.searchParams.set("order", order.orderNumber || order.id);
+      cancel.searchParams.set("reference", reference);
+      const session = await createBachsCheckoutSession(bachsConfig!, {
+        email,
+        customerName: order.customer?.name,
+        phone: order.customer?.phone,
+        amount: fee.toFixed(2),
+        currency: "NGN",
+        reference,
+        successUrl: callbackUrl,
+        cancelUrl: cancel.toString(),
+        metadata: stripUndefined({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          purpose: COD_FEE_PURPOSE,
+        }),
+        idempotencyKey: `codfee-${order.id}`,
+      });
+      await paymentRef.update({ checkoutId: session.checkoutId });
+      initialized = { authorizationUrl: session.checkoutUrl, reference };
     } else {
       const res = await initializeMonnifyTransaction(monnifyConfig!, {
         email,
@@ -209,7 +300,11 @@ export async function initializeCodCommitmentFee(input: {
         amount: fee,
         reference,
         callbackUrl,
-        metadata: { orderId: order.id, orderNumber: order.orderNumber, purpose: COD_FEE_PURPOSE },
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          purpose: COD_FEE_PURPOSE,
+        },
       });
       initialized = res;
       await paymentRef.update({

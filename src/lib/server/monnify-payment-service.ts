@@ -1,23 +1,24 @@
-import { randomUUID } from "node:crypto";
-import { FieldValue } from "firebase-admin/firestore";
-import { getAdminDb } from "@/lib/server/firebase-admin";
+import { COD_FEE_PURPOSE } from "@/lib/cod";
 import { getAppUrl } from "@/lib/server/env";
-import { getMonnifyConfiguration } from "@/lib/server/monnify-settings";
+import {
+  finalizeCodCommitmentFee,
+  finalizeSuccessfulPayment,
+} from "@/lib/server/finalize-payment";
+import { getAdminDb } from "@/lib/server/firebase-admin";
+import { notifyMakeOrderPaid } from "@/lib/server/make-webhook";
 import {
   initializeMonnifyTransaction,
   normalizeMonnifyVerification,
   validateMonnifyPayment,
   verifyMonnifyTransaction,
 } from "@/lib/server/monnify";
+import { getMonnifyConfiguration } from "@/lib/server/monnify-settings";
 import { appendTimelineAdmin } from "@/lib/server/order-timeline";
-import {
-  finalizeCodCommitmentFee,
-  finalizeSuccessfulPayment,
-} from "@/lib/server/finalize-payment";
-import { COD_FEE_PURPOSE } from "@/lib/cod";
-import { notifyMakeOrderPaid } from "@/lib/server/make-webhook";
-import { stripUndefined } from "@/utils/firestore";
+import { currentStoreContext } from "@/lib/server/store-context";
 import type { Order } from "@/types/order";
+import { stripUndefined } from "@/utils/firestore";
+import { FieldValue } from "firebase-admin/firestore";
+import { randomUUID } from "node:crypto";
 
 export async function initializeMonnifyForOrder(orderId: string) {
   const config = await getMonnifyConfiguration();
@@ -59,6 +60,9 @@ export async function initializeMonnifyForOrder(orderId: string) {
         orderNumber: order.orderNumber,
         userId: order.userId,
         gateway: "monnify",
+        storeId: currentStoreContext().id,
+        storeName: order.storeName,
+        credentialVersion: currentStoreContext().credentialVersion,
         reference,
         amount,
         amountKobo: Math.round(amount * 100),

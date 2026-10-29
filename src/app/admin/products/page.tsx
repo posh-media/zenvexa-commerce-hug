@@ -22,7 +22,10 @@ import {
   listAllProductsAdmin,
   updateProductAdmin,
 } from "@/services/admin-products.service";
-import { listBrandsAdmin, listCategoriesAdmin } from "@/services/admin-catalog.service";
+import {
+  listBrandsAdmin,
+  listCategoriesAdmin,
+} from "@/services/admin-catalog.service";
 import { useUserStore } from "@/stores/user.store";
 import { toastError, toastSuccess } from "@/stores/toast.store";
 import { formatPrice } from "@/lib/utils";
@@ -138,7 +141,8 @@ function ProductsAdminInner() {
     }
     if (filter === "active") next = next.filter((p) => p.active);
     if (filter === "inactive") next = next.filter((p) => !p.active);
-    if (filter === "low") next = next.filter((p) => p.stock > 0 && p.stock <= 5);
+    if (filter === "low")
+      next = next.filter((p) => p.stock > 0 && p.stock <= 5);
     if (filter === "out") next = next.filter((p) => p.stock <= 0);
     if (sort === "price-asc") next.sort((a, b) => a.price - b.price);
     else if (sort === "price-desc") next.sort((a, b) => b.price - a.price);
@@ -210,7 +214,7 @@ function ProductsAdminInner() {
     <RequireAdmin permission="products:write">
       <AdminPageHeader
         title="Products"
-        description="Create, edit, archive and bulk-manage catalogue products."
+        description="Products and inventory are shared. Changes here affect both storefronts."
         actions={
           <Button type="button" variant="outline" size="sm" onClick={resetForm}>
             New product
@@ -255,7 +259,9 @@ function ProductsAdminInner() {
               <Input
                 id="sku"
                 value={form.sku}
-                onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, sku: e.target.value }))
+                }
               />
             </div>
             <div>
@@ -395,9 +401,7 @@ function ProductsAdminInner() {
                 key={key}
                 label={label}
                 checked={form[key]}
-                onChange={() =>
-                  setForm((f) => ({ ...f, [key]: !f[key] }))
-                }
+                onChange={() => setForm((f) => ({ ...f, [key]: !f[key] }))}
               />
             ))}
           </div>
@@ -427,7 +431,11 @@ function ProductsAdminInner() {
             </p>
           ) : null}
           <Button type="submit" disabled={saving} className="w-full">
-            {saving ? "Saving…" : editingId ? "Update product" : "Create product"}
+            {saving
+              ? "Saving…"
+              : editingId
+                ? "Update product"
+                : "Create product"}
           </Button>
         </form>
 
