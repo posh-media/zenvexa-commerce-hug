@@ -58,10 +58,7 @@ export function Footer() {
         <div className="footer-bottom">
           <span>
             © {new Date().getFullYear()} Zenvexa Commerce Hug. Made for Naija,
-            with love. ·{" "}
-            <Link href="/admin" className="underline">
-              Admin
-            </Link>
+            with love.
           </span>
           <span className="flex items-center gap-2">
             <ShieldCheck size={13} />
