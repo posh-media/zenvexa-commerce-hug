@@ -9,11 +9,12 @@ import {
   readJsonStorage,
 } from "@/lib/cart";
 import { formatPrice } from "@/lib/utils";
+import { orderConfirmationCopy } from "@/lib/order-confirmation";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SuccessIllustration } from "@/components/ui/illustrations";
 import { getOrderByNumber } from "@/services/orders.service";
-import { verifyPaystackPayment, verifyKorapayPayment, verifySquadPayment, verifyMonnifyPayment } from "@/services/payments.service";
+import { verifyPaystackPayment, verifyKorapayPayment, verifySquadPayment, verifyMonnifyPayment, verifyBachsPayment } from "@/services/payments.service";
 import { useCheckoutStore } from "@/stores/checkout.store";
 import { toastError, toastSuccess } from "@/stores/toast.store";
 import type { Order } from "@/types/order";
@@ -23,7 +24,7 @@ function OrderSuccessContent() {
   const router = useRouter();
   const orderParam = searchParams.get("order") ?? "";
   const lastOrder = useCheckoutStore((state) => state.lastOrder);
-  const [order, setOrder] = useState<Order | null>(lastOrder);
+  const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -38,23 +39,16 @@ function OrderSuccessContent() {
       try {
         const cached =
           lastOrder ?? readJsonStorage<Order | null>(LAST_ORDER_KEY, null);
-        if (orderParam) {
-          const remote = await getOrderByNumber(orderParam);
-          if (!cancelled) {
-            setOrder(remote ?? cached);
-            if (!remote && !cached) {
-              setError("We could not find that order.");
-            }
-          }
-        } else if (!cancelled) {
-          setOrder(cached);
-          if (!cached) setError("No recent order to show.");
+        const identifier = orderParam || cached?.orderNumber || cached?.id;
+        const remote = identifier ? await getOrderByNumber(identifier) : undefined;
+        if (!cancelled) {
+          setOrder(remote ?? null);
+          if (!remote) setError("We could not find that order. Check your order history.");
         }
       } catch {
         if (!cancelled) {
-          const cached = readJsonStorage<Order | null>(LAST_ORDER_KEY, null);
-          setOrder(cached);
-          if (!cached) setError("Could not load order details.");
+          setOrder(null);
+          setError("Could not load the latest order details. Check your order history or try again shortly.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -78,10 +72,12 @@ function OrderSuccessContent() {
         return;
       }
 
-      const paymentMethod = order.paymentMethod?.toLowerCase();
+      const paymentMethod = (order.paymentMethod === "cash-on-delivery" ? order.paymentGateway : order.paymentMethod)?.toLowerCase();
       let result;
       
-      if (paymentMethod === "monnify") {
+      if (paymentMethod === "bachs") {
+        result = await verifyBachsPayment(reference);
+      } else if (paymentMethod === "monnify") {
         result = await verifyMonnifyPayment(reference);
       } else if (paymentMethod === "squad") {
         result = await verifySquadPayment(reference);
@@ -92,7 +88,7 @@ function OrderSuccessContent() {
       }
 
       if (result.ok) {
-        toastSuccess("Payment verified", "Your order has been confirmed");
+        toastSuccess("Payment verification completed", "Check the latest status in order tracking.");
         // Reload the order to get updated status
         const updatedOrder = await getOrderByNumber(order.orderNumber || order.id);
         if (updatedOrder) {
@@ -113,7 +109,7 @@ function OrderSuccessContent() {
 
   // Show manual verify button if order is not paid
   useEffect(() => {
-    if (order && order.paymentStatus !== "paid" && order.paymentStatus !== "processing") {
+    if (order && order.paymentStatus !== "paid" && order.paymentReference) {
       setShowManualVerify(true);
     } else {
       setShowManualVerify(false);
@@ -153,6 +149,7 @@ function OrderSuccessContent() {
   const items = order?.products ?? order?.items ?? [];
   const orderNumber = order?.orderNumber ?? order?.id ?? "—";
   const total = order?.total ?? 0;
+  const confirmation = orderConfirmationCopy(order);
 
   return (
     <div className="sb-container">
@@ -161,13 +158,12 @@ function OrderSuccessContent() {
           <SuccessIllustration />
         </div>
         <h1 className="mt-8 text-[30px] font-semibold tracking-[-0.03em] text-ink sm:text-display-sm">
-          {error ? "Order status" : "Thank you — your order is confirmed"}
+          {loading || error ? "Order status" : confirmation.title}
         </h1>
         <p className="mt-3 max-w-lg text-[15px] leading-relaxed text-muted sm:text-base">
           {loading
             ? "Loading your order…"
-            : (error ??
-              "We are packing it now. You will get a confirmation as soon as it leaves the warehouse.")}
+            : (error ?? confirmation.description)}
         </p>
 
         {!loading && order ? (
