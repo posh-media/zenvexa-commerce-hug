@@ -168,7 +168,7 @@ export function getPaystackPublicKey() {
 }
 
 // Payment provider availability cache
-let providerSettings: {
+export type PaymentProviderSettings = {
   monnify: boolean;
   squad: boolean;
   paystack: boolean;
@@ -177,41 +177,46 @@ let providerSettings: {
   bachs: boolean;
   cod: boolean;
   codAllowedStates: string[];
-} | null = null;
+  availabilityError?: string;
+};
+let providerSettings: PaymentProviderSettings | null = null;
+let providerSettingsFetchedAt = 0;
+const disabledProviders: PaymentProviderSettings = {
+  monnify: false, squad: false, paystack: false, korapay: false,
+  flutterwave: false, bachs: false, cod: false, codAllowedStates: [],
+};
 
-async function fetchProviderSettings() {
+async function fetchProviderSettings(): Promise<PaymentProviderSettings> {
   try {
-    const response = await fetch("/api/payment-settings");
+    const response = await fetch("/api/payment-settings", { cache: "no-store" });
+    if (!response.ok) throw new Error("Payment settings service unavailable.");
     const data = await response.json();
+    if (!data || data.ok === false || typeof data.squad !== "boolean") throw new Error("Invalid payment settings response.");
     providerSettings = {
-      ...data,
+      monnify: data.monnify === true,
+      squad: data.squad === true,
+      paystack: data.paystack === true,
+      korapay: data.korapay === true,
+      flutterwave: data.flutterwave === true,
+      bachs: data.bachs === true,
+      cod: data.cod === true,
       codAllowedStates: Array.isArray(data.codAllowedStates)
-        ? data.codAllowedStates
+        ? data.codAllowedStates.filter((state: unknown): state is string => typeof state === "string")
         : [],
     };
+    providerSettingsFetchedAt = Date.now();
     return providerSettings;
   } catch (error) {
     console.error("Failed to fetch payment settings:", error);
-    // Fallback to environment variables during migration
-    providerSettings = {
-      monnify: process.env.NEXT_PUBLIC_MONNIFY_ENABLED === "true",
-      squad: process.env.NEXT_PUBLIC_SQUAD_ENABLED === "true",
-      paystack: process.env.NEXT_PUBLIC_PAYSTACK_ENABLED === "true",
-      korapay: process.env.NEXT_PUBLIC_KORAPAY_ENABLED === "true",
-      flutterwave: process.env.NEXT_PUBLIC_FLUTTERWAVE_ENABLED === "true",
-      bachs: process.env.NEXT_PUBLIC_BACHS_ENABLED === "true",
-      cod: process.env.NEXT_PUBLIC_COD_ENABLED !== "false",
-      codAllowedStates: [],
-    };
-    return providerSettings;
+    // Fallback to disabled options while configuration is unavailable
+    return { ...disabledProviders, availabilityError: "Payment options could not be loaded. Please retry shortly or contact support; do not submit payment again if you have already paid." };
   }
 }
 
-export async function getPaymentProviderSettings() {
-  if (!providerSettings) {
-    await fetchProviderSettings();
-  }
-  return providerSettings!;
+export async function getPaymentProviderSettings(): Promise<PaymentProviderSettings> {
+  if (typeof window === "undefined") return { ...disabledProviders };
+  if (providerSettings && Date.now() - providerSettingsFetchedAt < 60000) return providerSettings;
+  return fetchProviderSettings();
 }
 
 export function clearPaymentProviderSettingsCache() {

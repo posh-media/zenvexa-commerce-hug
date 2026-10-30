@@ -178,14 +178,19 @@ export default function AdminIntegrationsPage() {
     cod: false,
     make: false,
   });
+  const [credentialStatus, setCredentialStatus] = useState<"loading" | "ready" | "error">("loading");
   const [saving, setSaving] = useState<ProviderKey | "all" | null>(null);
   const [saved, setSaved] = useState<Partial<Record<ProviderKey, boolean>>>({});
 
   useEffect(() => {
     void fetch("/api/payment-settings")
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (!res.ok) throw new Error("Payment configuration unavailable.");
+        return res.json();
+      })
       .then((data) => {
-        if (!data) return;
+        if (!data || data.ok === false) throw new Error("Payment configuration unavailable.");
+        setCredentialStatus("ready");
         setConfigured({
           paystack: Boolean(data.paystackKeyConfigured),
           korapay: Boolean(data.korapayKeyConfigured),
@@ -195,7 +200,7 @@ export default function AdminIntegrationsPage() {
           bachs: data.bachsFieldsConfigured ?? {},
         });
       })
-      .catch(() => undefined);
+      .catch(() => setCredentialStatus("error"));
     void getAppSettings()
       .then((settings) => {
         if (!settings) return;
@@ -223,8 +228,9 @@ export default function AdminIntegrationsPage() {
   }, []);
 
   const secretPlaceholder = (configuredFlag: boolean, label: string) =>
-    configuredFlag
-      ? "Configured — leave blank to keep existing key"
+    credentialStatus === "loading" ? "Checking saved credential status…"
+      : credentialStatus === "error" ? "Unable to check saved key — leave blank to keep it"
+      : configuredFlag ? "Configured — leave blank to keep existing key"
       : `Enter ${label} (not configured)`;
 
   /** Persist only the named provider's settings + secrets. */
@@ -394,6 +400,7 @@ export default function AdminIntegrationsPage() {
         title="Payment &amp; Integrations"
         description="Payment providers, API credentials and webhook URLs. Secrets are stored in a write-only collection — blank fields keep saved values."
       />
+      {credentialStatus === "error" && <p role="alert" className="mx-auto mb-4 max-w-2xl text-sm text-red-700">Saved keys could not be verified because the payment settings service is unavailable. Your saved keys have not been removed. Check the deployment&apos;s server-only Firebase Admin credentials and store configuration, then reload.</p>}
       <div className="mx-auto max-w-2xl space-y-4">
         {/* Paystack */}
         <form onSubmit={onSaveProvider("paystack")}>
