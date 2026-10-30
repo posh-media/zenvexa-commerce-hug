@@ -96,3 +96,57 @@ test("concurrent Make confirmations claim once and carry immutable store context
     assert.equal(data.makeNotifyStatus, "sent");
   } finally { global.fetch = originalFetch; }
 });
+
+test("password change reauthenticates before updating and does not update after failed reauthentication", async () => {
+  const calls = [];
+  let denied = false;
+  const user = { email: "fixture@example.test", providerData: [{ providerId: "password" }] };
+  const load = loader({
+    "firebase/auth": {
+      EmailAuthProvider: { credential: () => ({}) },
+      reauthenticateWithCredential: async () => { calls.push("reauth"); if (denied) throw Object.assign(new Error(), { code: "auth/invalid-credential" }); },
+      updatePassword: async () => calls.push("update"),
+    },
+    "firebase/firestore": {},
+    "@/firebase/auth": { getFirebaseAuth: () => ({ currentUser: user }) },
+    "@/services/users.service": {},
+  });
+  const { changePassword } = load("@/services/auth.service");
+  assert.equal((await changePassword("old-fixture", "new-fixture-password")).ok, true);
+  assert.deepEqual(calls, ["reauth", "update"]);
+  denied = true;
+  assert.equal((await changePassword("wrong-fixture", "new-fixture-password")).ok, false);
+  assert.deepEqual(calls, ["reauth", "update", "reauth"]);
+});
+
+test("legacy shared finalizer reads the private ShopBeta endpoint and suppresses repeat notifications", async () => {
+  const { readFileSync } = require("node:fs");
+  let data = { paymentStatus: "paid", storeName: "Historical ShopBeta" };
+  const ref = { get: async () => ({ exists: true, data: () => ({ ...data }) }), set: async (patch) => { data = { ...data, ...patch }; } };
+  const db = {
+    doc: (path) => ({ get: async () => ({ data: () => path === "privateStoreSettings/shopbeta" ? { makeWebhookUrl: "https://example.test/private-endpoint" } : {} }) }),
+    collection: () => ({ doc: () => ref }),
+    runTransaction: async (action) => action({ get: () => ref.get(), update: (_ref, patch) => { data = { ...data, ...patch }; } }),
+  };
+  const module = { exports: {} };
+  const customRequire = (name) => {
+    if (name === "firebase-admin/firestore") return { getFirestore: () => db, FieldValue: { serverTimestamp: () => new Date(), delete: () => null } };
+    if (name === "./store-routing") return { storeFrom: () => "shopbeta" };
+    if (name === "./stripUndefined") return { stripUndefined: (value) => value };
+    throw new Error(`Unexpected import: ${name}`);
+  };
+  new Function("require", "module", "exports", readFileSync("functions/src/finalizeShared.js", "utf8"))(customRequire, module, module.exports);
+  const originalFetch = global.fetch;
+  const deliveries = [];
+  global.fetch = async (url, options) => { deliveries.push({ url, ...options }); return { ok: true }; };
+  try {
+    await module.exports.notifyMake({ id: "legacy-order", ...data }, "ref");
+    await module.exports.notifyMake({ id: "legacy-order", ...data }, "ref");
+    assert.equal(deliveries.length, 1);
+    assert.equal(deliveries[0].url, "https://example.test/private-endpoint");
+    const payload = JSON.parse(deliveries[0].body);
+    assert.equal(payload.storeId, "shopbeta");
+    assert.equal(payload.storeName, "Historical ShopBeta");
+    assert.equal(payload.eventId, "shopbeta:legacy-order:payment-confirmed");
+  } finally { global.fetch = originalFetch; }
+});
