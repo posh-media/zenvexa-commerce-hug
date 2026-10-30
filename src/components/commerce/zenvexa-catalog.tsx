@@ -6,9 +6,14 @@ import { formatPrice } from "@/lib/utils";
 import { ProductGrid } from "./product-card";
 import { CatalogEmpty } from "./catalog-state";
 import { prioritizeRealImages } from "@/lib/product-image";
+import { categorySections } from "@/lib/category-sections";
 
 /** Display-only filters over ShopBeta's active product views. Checkout keeps its authoritative pricing. */
-export function ZenvexaCatalog({ items }: { items: Product[] }) {
+export function ZenvexaCatalog({ items, categories = [] }: {
+  items: Product[];
+  categories?: { id: string; name: string; slug: string }[];
+}) {
+  const [grouped, setGrouped] = useState(true);
   const ceiling = Math.max(20000, ...items.map((p) => p.price));
   const [search, setSearch] = useState("");
   const [budget, setBudget] = useState(ceiling);
@@ -41,6 +46,10 @@ export function ZenvexaCatalog({ items }: { items: Product[] }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+      </div>
+      <div className="mb-4 flex gap-3" role="group" aria-label="Merchandise view">
+        <button className={`category-pill${grouped ? " selected" : ""}`} aria-pressed={grouped} onClick={() => setGrouped(true)}>Browse by category</button>
+        <button className={`category-pill${!grouped ? " selected" : ""}`} aria-pressed={!grouped} onClick={() => setGrouped(false)}>All merchandise</button>
       </div>
       <div className="filters">
         <span className="filter-count">
@@ -83,7 +92,12 @@ export function ZenvexaCatalog({ items }: { items: Product[] }) {
         </div>
       </div>
       {filtered.length ? (
-        <ProductGrid items={filtered} />
+        grouped ? categorySections(filtered, categories).map((section) => (
+          <section key={section.id} className="mb-8" aria-label={section.name}>
+            <h3 className="mb-4 text-xl font-semibold">{section.name}</h3>
+            <ProductGrid items={section.items} />
+          </section>
+        )) : <ProductGrid items={filtered} />
       ) : (
         <>
           <CatalogEmpty

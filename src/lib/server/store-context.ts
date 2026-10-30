@@ -7,6 +7,7 @@ import {
 import { AsyncLocalStorage } from "node:async_hooks";
 export type StoreContext = {
   id: StoreId;
+  storeName?: string;
   credentialVersion?: string;
   sandbox?: boolean;
   legacyAttempt?: boolean;

@@ -175,7 +175,7 @@ export async function initializeCodCommitmentFee(input: {
       userId: order.userId,
       gateway,
       storeId: currentStoreContext().id,
-      storeName: order.storeName,
+      storeName: order.storeName || currentStoreContext().storeName,
       credentialVersion: currentStoreContext().credentialVersion,
       purpose: COD_FEE_PURPOSE,
       reference,

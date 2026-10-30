@@ -1,6 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { loader } = require("./payment-test-helpers.cjs");
+process.env.NEXT_PUBLIC_STORE_ID = "zenvexa";
+process.env.STORE_ID = "zenvexa";
 
 test("category sections prefer stable IDs, normalize aliases, deduplicate products and retain sort order", () => {
   const { categorySections } = loader()("@/lib/category-sections");

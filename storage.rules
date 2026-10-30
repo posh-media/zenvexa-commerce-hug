@@ -14,9 +14,11 @@ service firebase.storage {
     }
 
     function userRole() {
-      return firestore.get(
+      let profile = firestore.get(
         /databases/(default)/documents/users/$(request.auth.uid)
-      ).data.role;
+      ).data;
+      return profile.get('status', 'active') in ['suspended', 'deleted'] || profile.get('active', true) == false
+        ? '' : profile.get('role', 'customer');
     }
 
     function isStaff() {

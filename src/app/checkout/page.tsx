@@ -687,7 +687,7 @@ export default function CheckoutPage() {
           { label: "Checkout" },
         ]}
         title="Checkout"
-        description="Complete your details to place the order. Payment capture is not wired yet — orders are created with pending payment status."
+        description="Complete your details and choose an available payment method. Your order remains pending until payment is verified securely by our server."
       />
 
       <ol className="mb-8 flex items-center gap-2 overflow-x-auto no-scrollbar sm:gap-4">
