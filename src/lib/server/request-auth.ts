@@ -22,6 +22,7 @@ export async function requireOrderActor(
     staffOnly ? "orders:write" : "orders:read",
   );
   if (
+    profile?.active === false ||
     profile?.status === "suspended" ||
     profile?.status === "deleted" ||
     (!staff && (staffOnly || order.userId !== identity.uid))
