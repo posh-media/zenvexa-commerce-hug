@@ -55,7 +55,7 @@ export async function initializeBachsForOrder(orderId: string) {
         userId: order.userId,
         gateway: "bachs",
         storeId: currentStoreContext().id,
-        storeName: order.storeName,
+        storeName: order.storeName || currentStoreContext().storeName,
         credentialVersion: currentStoreContext().credentialVersion,
         reference,
         amount,
@@ -102,7 +102,7 @@ export async function initializeBachsForOrder(orderId: string) {
         orderId,
         orderNumber: order.orderNumber,
       }),
-      idempotencyKey: `checkout-${orderId}`,
+      idempotencyKey: `checkout-${orderId}-${reference}`,
     });
     await paymentRef.update({
       checkoutId: session.checkoutId,

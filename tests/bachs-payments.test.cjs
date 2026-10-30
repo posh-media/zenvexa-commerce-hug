@@ -154,6 +154,31 @@ function sessionResponse(session) {
     });
 }
 
+test("Bachs retries use a separate provider idempotency key for each persisted attempt", async () => {
+  process.env.STORE_ID = "shopbeta";
+  process.env.NEXT_PUBLIC_STORE_ID = "shopbeta";
+  process.env.NEXT_PUBLIC_APP_URL = "https://www.shopbetaa.store";
+  const f = fixture();
+  const context = f.load("@/lib/server/store-context");
+  const initialize = f.load("@/lib/server/bachs-payment-service").initializeBachsForOrder;
+  const keys = [];
+  await withFetch(async (_url, init) => {
+    const body = JSON.parse(init.body);
+    keys.push(init.headers["Idempotency-Key"]);
+    assert.equal(keys.at(-1), `checkout-order-1-${body.reference}`);
+    return new Response(JSON.stringify({ checkout_id: `checkout-${keys.length}`, checkout_url: "https://checkout.bachs.io/c/test", status: "open", reference: body.reference }), { status: 200 });
+  }, async () => {
+    for (const version of ["before-rotation", "after-rotation"]) {
+      const result = await context.withStoreContext({ id: "shopbeta", storeName: "ShopBeta", credentialVersion: version }, () => initialize("order-1"));
+      assert.equal(result.ok, true);
+      const attempt = [...f.records.values()].find((p) => p.reference === result.reference && p.gateway === "bachs");
+      assert.equal(attempt.storeName, "ShopBeta");
+      assert.equal(attempt.credentialVersion, version);
+    }
+  });
+  assert.notEqual(keys[0], keys[1]);
+});
+
 test("bachs verify marks the order paid once the session is completed", async () => {
   const f = fixture();
   const verify = f.load(

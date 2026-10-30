@@ -56,7 +56,7 @@ export async function initializeSquadForOrder(orderId: string) {
         userId: order.userId,
         gateway: "squad",
         storeId: currentStoreContext().id,
-        storeName: order.storeName,
+        storeName: order.storeName || currentStoreContext().storeName,
         credentialVersion: currentStoreContext().credentialVersion,
         reference,
         amount,

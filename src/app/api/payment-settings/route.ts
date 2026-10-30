@@ -46,7 +46,7 @@ async function privateFieldsConfigured(
     try {
       data = await providerSecrets(provider);
     } catch {
-      data = undefined;
+      throw new Error("Private payment configuration could not be loaded.");
     }
   }
   for (const field of fields) {
@@ -142,7 +142,7 @@ export async function GET() {
         process.env.NEXT_PUBLIC_BACHS_ENABLED === "true",
       cod:
         settings?.payments?.codEnabled ??
-        process.env.NEXT_PUBLIC_COD_ENABLED !== "false",
+        process.env.NEXT_PUBLIC_COD_ENABLED === "true",
       codAllowedStates: Array.isArray(
         settings?.payments?.paymentOnDeliveryAllowedStates,
       )
@@ -160,12 +160,15 @@ export async function GET() {
     };
 
     return NextResponse.json(publicSettings);
-  } catch {
+  } catch (error) {
+    const missingName = error instanceof Error && error.message === "Admin has not configured the store name. Please contact support.";
     return NextResponse.json(
       {
         ok: false,
-        reason:
-          "Admin has not configured the store name. Please contact support.",
+        code: missingName ? "STORE_NAME_MISSING" : "PAYMENT_CONFIGURATION_UNAVAILABLE",
+        reason: missingName
+          ? "Admin has not configured the store name. Please contact support."
+          : "Payment configuration could not be loaded. Check the server Firebase Admin credentials and store configuration.",
         paystack: false,
         korapay: false,
         squad: false,

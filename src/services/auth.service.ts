@@ -1,5 +1,9 @@
 import {
   GoogleAuthProvider,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  updatePassword,
   browserLocalPersistence,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -197,6 +201,25 @@ export async function updateAuthProfile(input: {
       photoURL:
         input.photoURL === undefined ? user.photoURL : input.photoURL,
     });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: mapAuthError(error) };
+  }
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const user = getFirebaseAuth().currentUser;
+    if (!user || user.isAnonymous || !user.email) return { ok: false, reason: "You must be signed in." };
+    if (newPassword.length < 12) return { ok: false, reason: "Use at least 12 characters for your new password." };
+    if (user.providerData.some((provider) => provider.providerId === "password")) {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+    } else if (user.providerData.some((provider) => provider.providerId === "google.com")) {
+      await reauthenticateWithPopup(user, new GoogleAuthProvider());
+    } else {
+      return { ok: false, reason: "Use the password reset flow to set up a password." };
+    }
+    await updatePassword(user, newPassword);
     return { ok: true };
   } catch (error) {
     return { ok: false, reason: mapAuthError(error) };

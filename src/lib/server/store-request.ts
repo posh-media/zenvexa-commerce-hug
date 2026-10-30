@@ -163,7 +163,7 @@ export async function withStoreRequest(
       },
       async () => {
         if (options.initialize) {
-          requireStoreName(await getAppSettings(), storeId);
+          const storeName = requireStoreName(await getAppSettings(), storeId);
           const provider =
             url.pathname.split("/")[3] === "cod"
               ? body.gateway
@@ -171,7 +171,7 @@ export async function withStoreRequest(
           if (typeof provider === "string" && provider !== "cod") {
             const version = await captureProviderVersion(provider);
             return withStoreContext(
-              { id: storeId, credentialVersion: version },
+              { id: storeId, storeName, credentialVersion: version },
               action,
             );
           }
