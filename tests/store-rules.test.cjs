@@ -195,3 +195,30 @@ test("payment identity and credential versions cannot be reassigned by browser a
     getDoc(doc(db, "storeMigrationReceipts/run/entries/entry")),
   );
 });
+
+test("ordinary Google identity cannot bootstrap roles or access admin data", async () => {
+  const db = env.authenticatedContext("ordinary-google", { firebase: { sign_in_provider: "google.com" } }).firestore();
+  await assertFails(setDoc(doc(db, "users/ordinary-google"), { role: "super_admin" }));
+  await assertSucceeds(setDoc(doc(db, "users/ordinary-google"), { role: "customer", status: "active" }));
+  await assertFails(updateDoc(doc(db, "users/ordinary-google"), { role: "admin" }));
+  await assertFails(getDoc(doc(db, "ads/private")));
+});
+
+test("suspended, deleted and inactive administrators cannot use staff permissions or reactivate themselves", async () => {
+  for (const [uid, fields] of [["suspended-admin", { status: "suspended" }], ["deleted-admin", { status: "deleted" }], ["inactive-admin", { active: false }]]) {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), `users/${uid}`), { role: "admin", ...fields }));
+    const db = env.authenticatedContext(uid).firestore();
+    await assertFails(getDoc(doc(db, "ads/private")));
+    await assertFails(updateDoc(doc(db, `users/${uid}`), { status: "active", active: true }));
+  }
+});
+
+test("staff roles retain distinct permissions", async () => {
+  for (const role of ["super_admin", "admin", "inventory_manager", "order_manager", "customer_support", "marketing_manager", "staff"]) {
+    const uid = `role-${role}`;
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), `users/${uid}`), { role, status: "active" }));
+    const db = env.authenticatedContext(uid).firestore();
+    const action = setDoc(doc(db, `products/rbac-${role}`), { name: "Fixture" });
+    await (["super_admin", "admin", "inventory_manager"].includes(role) ? assertSucceeds(action) : assertFails(action));
+  }
+});

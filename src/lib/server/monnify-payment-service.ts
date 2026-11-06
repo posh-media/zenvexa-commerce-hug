@@ -61,7 +61,7 @@ export async function initializeMonnifyForOrder(orderId: string) {
         userId: order.userId,
         gateway: "monnify",
         storeId: currentStoreContext().id,
-        storeName: order.storeName,
+        storeName: order.storeName || currentStoreContext().storeName,
         credentialVersion: currentStoreContext().credentialVersion,
         reference,
         amount,

@@ -20,7 +20,8 @@ export function RequireAdmin({
   const router = useRouter();
   const status = useUserStore((state) => state.status);
   const profile = useUserStore((state) => state.profile);
-  const role = profile?.role;
+  const blocked = profile?.active === false || profile?.status === "suspended" || profile?.status === "deleted";
+  const role = blocked ? undefined : profile?.role;
 
   useEffect(() => {
     if (status === "anonymous") {

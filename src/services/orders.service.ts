@@ -4,13 +4,7 @@ import { belongsToStore } from "@/lib/store";
 import { storeDocuments } from "@/lib/store-queries";
 import type { Order } from "@/types/order";
 import type { Address } from "@/types/user";
-import {
-  getDoc,
-  getDocs,
-  limit as limitTo,
-  query,
-  where,
-} from "firebase/firestore";
+import { getDoc, where } from "firebase/firestore";
 
 export async function getOrderById(id: string): Promise<Order | undefined> {
   const snapshot = await getDoc(orderDoc(id));
@@ -32,17 +26,11 @@ export async function getOrderByNumber(
   const normalized = orderNumber.trim().toUpperCase();
   if (!normalized) return undefined;
 
-  const snapshot = await getDocs(
-    query(
-      ordersCollection(),
-      where("orderNumber", "==", normalized),
-      limitTo(1),
-    ),
-  );
-  if (snapshot.docs[0] && belongsToStore(snapshot.docs[0].data()))
-    return snapshot.docs[0].data();
-
-  return getOrderById(orderNumber.trim());
+  const { authenticatedFetch } = await import("@/lib/client-api");
+  const response = await authenticatedFetch(`/api/orders?order=${encodeURIComponent(orderNumber.trim())}`);
+  if (!response.ok) return undefined;
+  const result = await response.json() as { ok: boolean; orderId?: string };
+  return result.ok && result.orderId ? getOrderById(result.orderId) : undefined;
 }
 
 /**

@@ -543,7 +543,10 @@ function buildMakePayload(order, reference) {
 }
 
 async function notifyMake(order, reference) {
-  const makeUrl = process.env.MAKE_WEBHOOK_URL;
+  const db = getFirestore();
+  const privateSettings = (await db.doc("privateStoreSettings/shopbeta").get()).data();
+  const legacySettings = (await db.doc("settings/app").get()).data();
+  const makeUrl = privateSettings?.makeWebhookUrl || legacySettings?.notifications?.makeWebhookUrl || process.env.MAKE_WEBHOOK_URL;
   if (!makeUrl) {
     log("webhook.make", "Make.com URL not configured — skipped", {
       orderId: order.id,
@@ -551,8 +554,16 @@ async function notifyMake(order, reference) {
     return;
   }
 
-  const db = getFirestore();
   const orderRef = db.collection(COLLECTIONS.orders).doc(order.id);
+  const claimed = await db.runTransaction(async (tx) => {
+    const current = await tx.get(orderRef);
+    const data = current.data();
+    if (!data || !["paid", "success"].includes(String(data.paymentStatus)) || ["sent", "sending"].includes(data.makeNotifyStatus)) return false;
+    tx.update(orderRef, { makeNotifyStatus: "sending", makeNotifyAttemptedAt: FieldValue.serverTimestamp() });
+    return true;
+  });
+  if (!claimed) return;
+  const eventId = `shopbeta:${order.id}:payment-confirmed`;
   const snap = await orderRef.get();
   const latest = snap.exists ? snap.data() : {};
   if (latest.makeNotifyStatus === "sent" && latest.makeNotifiedAt) {
@@ -568,10 +579,12 @@ async function notifyMake(order, reference) {
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        "Idempotency-Key": eventId,
       },
-      body: JSON.stringify(
-        buildMakePayload({ ...order, ...latest, id: order.id }, reference),
-      ),
+      body: JSON.stringify({
+        ...buildMakePayload({ ...order, ...latest, id: order.id }, reference),
+        eventId,
+      }),
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");

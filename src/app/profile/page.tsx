@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { serverTimestamp } from "firebase/firestore";
 import { RequireAuth } from "@/components/auth/require-auth";
+import { ChangePasswordForm } from "@/components/auth/change-password-form";
 import { ProfileWishlistPreview } from "@/components/commerce/profile-wishlist-preview";
 import { RecentlyViewedRail } from "@/components/commerce/recently-viewed";
 import { PageHeader } from "@/components/layout/page-header";
@@ -510,6 +511,7 @@ function ProfileContent() {
       </section>
 
       <section className="pt-16 sm:pt-20">
+        <ChangePasswordForm />
         <ProfileWishlistPreview />
       </section>
 

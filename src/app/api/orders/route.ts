@@ -1,11 +1,32 @@
 import { getAdminDb } from "@/lib/server/firebase-admin";
 import { createPendingOrderServer } from "@/lib/server/create-order";
 import { clientKeyFromRequest, rateLimit } from "@/lib/server/rate-limit";
-import { requestIdentity } from "@/lib/server/request-auth";
+import { requestIdentity, requireOrderActor } from "@/lib/server/request-auth";
+import { belongsToStore } from "@/lib/store";
 import type { PlaceOrderInput } from "@/services/orders.service";
 import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export async function GET(request: Request) {
+  const limited = rateLimit({ key: clientKeyFromRequest(request, "orders-resolve"), limit: 30, windowMs: 60000 });
+  if (!limited.ok) return NextResponse.json({ ok: false }, { status: 429 });
+  const number = new URL(request.url).searchParams.get("order")?.trim();
+  if (!number || number.length > 200 || number.includes("/")) return NextResponse.json({ ok: false }, { status: 400 });
+  try {
+    await requestIdentity(request);
+    const db = getAdminDb();
+    const matches = await db.collection("orders").where("orderNumber", "==", number.toUpperCase()).get();
+    const ownStore = matches.docs.filter((doc) => belongsToStore(doc.data()));
+    if (ownStore.length > 1) return NextResponse.json({ ok: false }, { status: 409 });
+    const snapshot = ownStore[0] ?? await db.collection("orders").doc(number).get();
+    if (!snapshot.exists || !belongsToStore(snapshot.data()!)) return NextResponse.json({ ok: false }, { status: 404 });
+    await requireOrderActor(request, snapshot.data()!);
+    return NextResponse.json({ ok: true, orderId: snapshot.id });
+  } catch (error) {
+    return NextResponse.json({ ok: false }, { status: error instanceof Error && error.message === "Authentication required." ? 401 : 403 });
+  }
+}
+
 export async function POST(request: Request) {
   const limited = rateLimit({
     key: clientKeyFromRequest(request, "orders-create"),
@@ -22,7 +43,7 @@ export async function POST(request: Request) {
     const profile = (
       await getAdminDb().collection("users").doc(identity.uid).get()
     ).data();
-    if (profile?.status === "suspended" || profile?.status === "deleted")
+    if (profile?.active === false || profile?.status === "suspended" || profile?.status === "deleted")
       return NextResponse.json(
         { ok: false, reason: "Access denied." },
         { status: 403 },

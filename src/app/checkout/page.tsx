@@ -6,7 +6,7 @@ import type { AppSettings } from "@/types/settings";
 import { OrderSummary } from "@/components/commerce/order-summary";
 import { ProductMedia } from "@/components/commerce/product-media";
 import { PageHeader } from "@/components/layout/page-header";
-import { ButtonLink } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label, Radio, Select, Textarea } from "@/components/ui/field";
@@ -24,6 +24,8 @@ import { formatPrice } from "@/lib/utils";
 import { placeOrder } from "@/services/orders.service";
 import {
   getPaymentProviderSettings,
+  clearPaymentProviderSettingsCache,
+  type PaymentProviderSettings,
   initializeBachsPayment,
   initializeCodCommitmentFeePayment,
   initializeKorapayPayment,
@@ -54,16 +56,8 @@ function PaymentProviderOptions({
   deliveryState: string;
   commitmentFee: number;
 }) {
-  const [providers, setProviders] = useState<{
-    monnify: boolean;
-    squad: boolean;
-    paystack: boolean;
-    korapay: boolean;
-    flutterwave: boolean;
-    bachs: boolean;
-    cod: boolean;
-    codAllowedStates: string[];
-  } | null>(null);
+  const [providers, setProviders] = useState<PaymentProviderSettings | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     const loadProviders = async () => {
@@ -76,12 +70,21 @@ function PaymentProviderOptions({
       });
     };
     void loadProviders();
-  }, []);
+  }, [loadAttempt]);
 
   if (!providers) {
     return <div className="text-sm text-muted">Loading payment options...</div>;
   }
 
+  if (providers.availabilityError) return (
+    <div role="alert" className="space-y-3 text-sm text-red-700">
+      <p>{providers.availabilityError}</p>
+      <Button type="button" onClick={() => { clearPaymentProviderSettingsCache(); setProviders(null); setLoadAttempt((attempt) => attempt + 1); }}>Retry payment options</Button>
+    </div>
+  );
+  if (![providers.paystack, providers.korapay, providers.squad, providers.monnify, providers.bachs, providers.cod].some(Boolean)) {
+    return <p role="status" className="text-sm text-muted">No payment methods are currently enabled for this store. Please contact support.</p>;
+  }
   const allowedStates = providers.codAllowedStates ?? [];
   const normalizedState = deliveryState
     .trim()
@@ -387,6 +390,10 @@ export default function CheckoutPage() {
 
     // Get payment provider settings
     const settings = await getPaymentProviderSettings();
+    if (settings.availabilityError) {
+      setError(settings.availabilityError);
+      return;
+    }
 
     if (method === "paystack" && !settings.paystack) {
       setError(
@@ -687,7 +694,7 @@ export default function CheckoutPage() {
           { label: "Checkout" },
         ]}
         title="Checkout"
-        description="Complete your details to place the order. Payment capture is not wired yet — orders are created with pending payment status."
+        description="Complete your details and choose an available payment method. Your order remains pending until payment is verified securely by our server."
       />
 
       <ol className="mb-8 flex items-center gap-2 overflow-x-auto no-scrollbar sm:gap-4">

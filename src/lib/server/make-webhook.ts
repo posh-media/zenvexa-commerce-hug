@@ -204,10 +204,21 @@ export async function notifyMakeOrderPaid(input: {
     return { ok: true, skipped: true, reason: "already_sent" };
   }
 
+  const claimed = await db.runTransaction(async (tx) => {
+    const current = await tx.get(orderRef);
+    const data = current.data();
+    if (!data || !["paid", "success"].includes(String(data.paymentStatus))) return false;
+    if ((!input.force && data.makeNotifyStatus === "sent") || data.makeNotifyStatus === "sending") return false;
+    tx.update(orderRef, { makeNotifyStatus: "sending", makeNotifyAttemptedAt: FieldValue.serverTimestamp() });
+    return true;
+  });
+  if (!claimed) return { ok: true, skipped: true, reason: "already_sent_or_in_progress" };
+
   const payload = buildMakeOrderPayload(
     { ...input.order, ...latest, id: input.order.id },
     input.reference,
   );
+  const eventId = `${payload.storeId}:${input.order.id}:payment-confirmed`;
 
   paymentLog("webhook.make", "Sending Make.com webhook", {
     orderId: input.order.id,
@@ -220,17 +231,17 @@ export async function notifyMakeOrderPaid(input: {
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        "Idempotency-Key": eventId,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, eventId }),
       cache: "no-store",
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => "");
       await orderRef.set(
         {
           makeNotifyStatus: "failed",
-          makeNotifyError: `HTTP ${response.status}: ${body.slice(0, 200)}`,
+          makeNotifyError: `HTTP ${response.status}`,
           makeNotifyAttemptedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         },
@@ -239,7 +250,6 @@ export async function notifyMakeOrderPaid(input: {
       paymentLog("webhook.make", "Make.com webhook failed", {
         orderId: input.order.id,
         status: response.status,
-        body: body.slice(0, 200),
       });
       return { ok: false, reason: `http_${response.status}` };
     }

@@ -42,6 +42,7 @@ export default async function HomePage() {
   let products: Awaited<ReturnType<typeof getActiveProducts>> = [];
   let home: Awaited<ReturnType<typeof getHomeCatalogSections>> | undefined;
   let categories: ReturnType<typeof toCategoryViews> = [];
+  let catalogCategories: { id: string; name: string; slug: string }[] = [];
   try {
     const [h, c, all] = await Promise.all([
       getHomeCatalogSections(8),
@@ -50,6 +51,7 @@ export default async function HomePage() {
     ]);
     home = h;
     categories = toCategoryViews(c);
+    catalogCategories = c.map(({ id, name, slug }) => ({ id, name, slug }));
     products = all;
   } catch {
     failed = true;
@@ -84,7 +86,7 @@ export default async function HomePage() {
       <nav className="category-strip" aria-label="Product categories">
         <Link
           href="/products"
-          className="category-pill selected inline-flex items-center"
+          className="category-pill inline-flex items-center"
         >
           All Merchandise
         </Link>
@@ -227,7 +229,7 @@ export default async function HomePage() {
             failed ? (
               <CatalogError />
             ) : (
-              <ZenvexaCatalog items={toProductViews(products)} />
+              <ZenvexaCatalog items={toProductViews(products)} categories={catalogCategories} />
             )
           ) : (
             <CatalogRail items={toProductViews(s.items)} failed={failed} />

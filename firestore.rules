@@ -13,7 +13,9 @@ service cloud.firestore {
     }
 
     function userRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return profile.get('status', 'active') in ['suspended', 'deleted'] || profile.get('active', true) == false
+        ? '' : profile.get('role', 'customer');
     }
 
     // Any staff / admin role (customers excluded)
@@ -233,10 +235,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || canManageCustomers() || isSuperOrAdmin();
       allow create: if isOwner(userId) &&
-        (!('role' in request.resource.data) || request.resource.data.role == 'customer');
+        (!('role' in request.resource.data) || request.resource.data.role == 'customer') &&
+        request.resource.data.get('status', 'active') == 'active' &&
+        request.resource.data.get('active', true) == true;
       allow update: if (isOwner(userId) &&
-          (!('role' in request.resource.data) ||
-            request.resource.data.role == resource.data.role)) ||
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'uid']) &&
+          request.resource.data.get('status', 'active') == resource.data.get('status', 'active') &&
+          request.resource.data.get('active', true) == resource.data.get('active', true)) ||
         isSuperOrAdmin() ||
         (canManageCustomers() &&
           request.resource.data.diff(resource.data).affectedKeys()
